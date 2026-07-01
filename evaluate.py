@@ -6,6 +6,7 @@ Usage:
     python3 evaluate.py --api-url http://host/detect                 # real API
     python3 evaluate.py --api-url http://host/detect --tag v1.2      # named run
     python3 evaluate.py --api-url http://host/detect -j 5 --serve    # throttle + open report
+    python3 evaluate.py --no-export                                  # skip PDF/PNG export
 
 Runs are saved under runs/<timestamp>_<tag>/ and runs/latest always
 points to the most recent run.
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from ald_client import ALDClient
+from export import export_report
 
 logging.basicConfig(
     level=logging.INFO,
@@ -450,61 +452,6 @@ def print_summary(metrics: dict) -> None:
     print(sep)
 
 
-def export_report(run_dir: Path, formats: list[str]) -> None:
-    """Render index.html in headless Chromium and export as PDF and/or PNG."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        logger.error(
-            "Playwright not installed.\n"
-            "  pip install playwright\n"
-            "  playwright install chromium"
-        )
-        return
-
-    report_html = Path(__file__).parent / "index.html"
-    if not report_html.exists():
-        logger.error(f"index.html not found at {report_html}")
-        return
-
-    report_data = (run_dir / "report_data.json").read_text(encoding="utf-8")
-    logger.info(f"Exporting report as: {', '.join(formats)}")
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1440, "height": 900})
-
-        # Intercept the fetch for report_data.json — serve from run dir, no HTTP server needed
-        def handle_route(route):
-            route.fulfill(
-                status=200,
-                content_type="application/json",
-                body=report_data,
-            )
-
-        page.route("**/report_data.json", handle_route)
-        page.goto(f"file://{report_html.resolve()}")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)  # let Chart.js finish rendering
-
-        if "pdf" in formats:
-            pdf_path = run_dir / "report.pdf"
-            page.pdf(
-                path=str(pdf_path),
-                format="A3",
-                landscape=True,
-                print_background=True,
-            )
-            logger.info(f"  PDF  → {pdf_path}")
-
-        if "png" in formats:
-            png_path = run_dir / "report.png"
-            page.screenshot(path=str(png_path), full_page=True)
-            logger.info(f"  PNG  → {png_path}")
-
-        browser.close()
-
-
 def serve_report(output_dir: Path, port: int = 8080) -> None:
     import http.server
     import threading
@@ -558,6 +505,8 @@ def main() -> None:
                         help="Start HTTP server and open report after evaluation")
     parser.add_argument("--port", type=int, default=8080,
                         help="HTTP server port when using --serve (default: 8080)")
+    parser.add_argument("--no-export", action="store_true",
+                        help="Skip automatic PDF/PNG export after evaluation")
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -610,6 +559,9 @@ def main() -> None:
 
     logger.info(f"Run saved → {run_dir}")
     logger.info(f"Symlink   → {runs_dir}/latest")
+
+    if not args.no_export:
+        export_report(run_dir, ["pdf", "png"])
 
     if args.serve:
         serve_report(run_dir, port=args.port)

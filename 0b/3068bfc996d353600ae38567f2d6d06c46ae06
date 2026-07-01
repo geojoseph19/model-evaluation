@@ -1,0 +1,23 @@
+eval_clips_telephony/results/metrics.json
+  s_ce4ee06867081d::t_3dc55c7964d810 1-199
+eval_clips_telephony/results/predictions.csv
+  s_ce4ee06867081d::t_d6c4ecffcd1f2e 1-64
+eval_clips_telephony/results/report_data.json
+  s_ce4ee06867081d::t_d4241f752ef2a4 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "0b3068bfc996d353600ae38567f2d6d06c46ae06",
+  "prompts": {},
+  "sessions": {
+    "s_ce4ee06867081d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b06b4010-b054-4405-9aa7-0bbf060a403c",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph <geo.joseph@tarento.com>"
+    }
+  }
+}

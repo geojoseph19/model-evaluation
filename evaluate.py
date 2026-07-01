@@ -17,12 +17,13 @@ import csv
 import json
 import logging
 import os
-import random
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from ald_client import ALDClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,98 +104,6 @@ class EvalResult:
 
 
 # ---------------------------------------------------------------------------
-# ALD API client (dummy + real)
-# ---------------------------------------------------------------------------
-
-class ALDClient:
-    def __init__(self, config: EvalConfig):
-        self.config = config
-        self._session = None
-
-    async def __aenter__(self):
-        if not self.config.use_dummy:
-            try:
-                import aiohttp
-                self._session = aiohttp.ClientSession()
-            except ImportError:
-                raise RuntimeError("aiohttp required for real API: pip install aiohttp")
-        return self
-
-    async def __aexit__(self, *args):
-        if self._session:
-            await self._session.close()
-
-    async def detect(self, sample: EvalSample) -> dict:
-        if self.config.use_dummy:
-            return await self._dummy_detect(sample)
-        return await self._real_detect(sample)
-
-    async def _dummy_detect(self, sample: EvalSample) -> dict:
-        """Simulate ALD API with duration-correlated accuracy."""
-        await asyncio.sleep(random.uniform(0.04, 0.25))
-
-        # Accuracy improves with clip length (realistic ALD behaviour)
-        accuracy_by_duration = {"1s": 0.72, "2s": 0.81, "3s": 0.88, "5s": 0.93}
-        accuracy = accuracy_by_duration.get(sample.duration, 0.85)
-
-        if random.random() < accuracy:
-            detected = sample.ground_truth
-            confidence = random.uniform(0.75, 0.97)
-        else:
-            others = [l for l in SUPPORTED_LANGUAGES if l != sample.ground_truth]
-            detected = random.choice(others)
-            confidence = random.uniform(0.35, 0.70)
-
-        # Construct plausible score distribution
-        scores = {l: round(random.uniform(0.01, 0.12), 4) for l in SUPPORTED_LANGUAGES}
-        scores[detected] = round(confidence, 4)
-        total = sum(scores.values())
-        scores = {k: round(v / total, 4) for k, v in scores.items()}
-
-        return {
-            "detected_language": detected,
-            "confidence": round(confidence, 4),
-            "all_scores": scores,
-        }
-
-    async def _real_detect(self, sample: EvalSample) -> dict:
-        """POST audio/wav to ALD API, return JSON response.
-
-        Expected response schema:
-            {
-                "detected_language": "bn",
-                "confidence": 0.92,
-                "all_scores": {"bn": 0.92, "ml": 0.03, ...}   // optional
-            }
-        """
-        import aiohttp
-
-        for attempt in range(self.config.retry_attempts):
-            try:
-                audio_bytes = sample.path.read_bytes()
-                form = aiohttp.FormData()
-                form.add_field(
-                    "audio",
-                    audio_bytes,
-                    filename=sample.filename,
-                    content_type="audio/wav",
-                )
-                async with self._session.post(
-                    self.config.api_url,
-                    data=form,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    resp.raise_for_status()
-                    return await resp.json()
-            except Exception as exc:
-                if attempt == self.config.retry_attempts - 1:
-                    raise
-                wait = self.config.retry_delay * (2 ** attempt)
-                logger.warning(f"Retry {attempt+1} for {sample.filename}: {exc} (wait {wait:.1f}s)")
-                await asyncio.sleep(wait)
-
-
-# ---------------------------------------------------------------------------
 # File discovery
 # ---------------------------------------------------------------------------
 
@@ -266,24 +175,20 @@ async def _process_one(
     async with semaphore:
         t0 = time.perf_counter()
         try:
-            resp = await client.detect(sample)
+            resp = await client.detect(sample.path, sample.filename)
             latency_ms = (time.perf_counter() - t0) * 1000
-
-            predicted = str(resp.get("detected_language", "unknown")).lower()
-            confidence = float(resp.get("confidence", 0.0))
-            all_scores = resp.get("all_scores", {})
 
             return EvalResult(
                 file_id=sample.file_id,
                 filename=sample.filename,
                 ground_truth=sample.ground_truth,
-                predicted=predicted,
-                confidence=confidence,
+                predicted=resp["detected_language"],
+                confidence=resp["confidence"],
                 duration=sample.duration,
                 language=sample.language,
                 latency_ms=round(latency_ms, 2),
-                correct=(predicted == sample.ground_truth),
-                all_scores=all_scores,
+                correct=(resp["detected_language"] == sample.ground_truth),
+                all_scores=resp["all_scores"],
             )
         except Exception as exc:
             latency_ms = (time.perf_counter() - t0) * 1000
@@ -308,7 +213,12 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
     total = len(samples)
     log_interval = max(1, total // 10)
 
-    async with ALDClient(config) as client:
+    async with ALDClient(
+        api_url=config.api_url,
+        use_dummy=config.use_dummy,
+        retry_attempts=config.retry_attempts,
+        retry_delay=config.retry_delay,
+    ) as client:
         tasks = [_process_one(s, client, semaphore) for s in samples]
         for i, coro in enumerate(asyncio.as_completed(tasks), 1):
             result = await coro

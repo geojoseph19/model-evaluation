@@ -1,0 +1,24 @@
+evaluate.py
+  s_d14c7aca511a39::t_c6c24692f6e4aa 563-565
+  s_d14c7aca511a39::t_885c0531d065bd 508-509
+  s_d14c7aca511a39::t_fe397876e12d23 28
+  s_d14c7aca511a39::t_3e95fcd0f183de 9
+README.md
+  s_d14c7aca511a39::t_83746ab2b8dc21 3,5,8-9,12-13,17-23,25,27-35,37,43,46-49,52-53,55-56,59,61,63-78,81,85,92,95,99,101,104,107,109,115,119,127-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "83bda39273cb2aefd9104badf5ad5c6c65b44955",
+  "prompts": {},
+  "sessions": {
+    "s_d14c7aca511a39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f6c1e238-14a7-406d-952c-fe4939507963",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALD Evaluation Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3250;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent2: #22d3ee;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --pill-green: rgba(34, 197, 94, 0.15);
+      --pill-red: rgba(239, 68, 68, 0.15);
+      --pill-yellow: rgba(234, 179, 8, 0.15);
+      --chart-bar-accent: rgba(99,102,241,0.8);
+      --chart-bar-cyan: rgba(34,211,238,0.7);
+      --chart-bar-green: rgba(34,197,94,0.6);
+      --chart-line: #22d3ee;
+      --chart-line-fill: rgba(34,211,238,0.1);
+      --chart-cm: 99,102,241;
+      --radius: 10px;
+      --font: "Inter", system-ui, sans-serif;
+    }
+
+    [data-theme="light"] {
+      --bg: #eef0f7;
+      --surface: #f7f8fc;
+      --surface2: #e4e8f2;
+      --border: #c8cfdf;
+      --text: #1a1d2e;
+      --muted: #5a6380;
+      --accent: #4f46e5;
+      --accent2: #06b6d4;
+      --green: #16a34a;
+      --red: #dc2626;
+      --yellow: #ca8a04;
+      --pill-green: rgba(22, 163, 74, 0.14);
+      --pill-red: rgba(220, 38, 38, 0.12);
+      --pill-yellow: rgba(202, 138, 4, 0.12);
+      --chart-bar-accent: rgba(79,70,229,0.78);
+      --chart-bar-cyan: rgba(6,182,212,0.72);
+      --chart-bar-green: rgba(22,163,74,0.65);
+      --chart-line: #06b6d4;
+      --chart-line-fill: rgba(6,182,212,0.12);
+      --chart-cm: 79,70,229;
+    }
+
+    .theme-toggle {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 1rem;
+      color: var(--muted);
+      cursor: pointer;
+      line-height: 1;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .theme-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ---- layout ---- */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+    header h1 span { color: var(--accent); }
+    .badge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    section { margin-bottom: 40px; }
+    section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 16px;
+    }
+
+    /* ---- cards ---- */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .card .value { font-size: 2rem; font-weight: 700; line-height: 1.2; margin-top: 4px; }
+    .card .sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+    .card.accent .value { color: var(--accent); }
+    .card.green .value { color: var(--green); }
+    .card.cyan .value { color: var(--accent2); }
+
+    /* ---- charts ---- */
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 800px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .chart-box h3 { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
+    .chart-box canvas { max-height: 300px; }
+
+    /* ---- confusion matrix ---- */
+    .cm-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      overflow-x: auto;
+    }
+    .cm-wrap h3 { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
+    table.cm {
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    table.cm th, table.cm td {
+      padding: 7px 12px;
+      text-align: center;
+      border: 1px solid var(--border);
+      min-width: 52px;
+    }
+    table.cm th { background: var(--surface2); color: var(--muted); font-weight: 500; }
+    table.cm td { font-weight: 600; transition: background 0.1s; }
+    table.cm .row-label { color: var(--muted); font-weight: 500; text-align: left; padding-left: 10px; }
+    table.cm .col-header-lang { font-size: 0.78rem; }
+
+    /* ---- per-lang table ---- */
+    table.metrics {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    table.metrics th {
+      background: var(--surface2);
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 10px 14px;
+      text-align: left;
+    }
+    table.metrics td { padding: 9px 14px; border-top: 1px solid var(--border); }
+    table.metrics tr:hover td { background: var(--surface2); }
+    .bar-cell { display: flex; align-items: center; gap: 8px; }
+    .mini-bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
+
+    /* ---- cross breakdown ---- */
+    table.cross {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.83rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    table.cross th {
+      background: var(--surface2);
+      color: var(--muted);
+      font-weight: 500;
+      padding: 9px 14px;
+      text-align: center;
+    }
+    table.cross th:first-child { text-align: left; }
+    table.cross td { padding: 9px 14px; border-top: 1px solid var(--border); text-align: center; }
+    table.cross td:first-child { text-align: left; font-weight: 500; }
+    table.cross tr:hover td { background: var(--surface2); }
+
+    /* ---- predictions table ---- */
+    .table-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    input.search, select.filter {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 12px;
+      color: var(--text);
+      font-size: 0.84rem;
+      outline: none;
+    }
+    input.search:focus, select.filter:focus { border-color: var(--accent); }
+    input.search { width: 240px; }
+    .count-label { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+
+    table.predictions {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      background: var(--surface);
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    table.predictions th {
+      background: var(--surface2);
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 9px 12px;
+      text-align: left;
+    }
+    table.predictions td { padding: 8px 12px; border-top: 1px solid var(--border); }
+    table.predictions tr:hover td { background: var(--surface2); }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .pill.correct { background: var(--pill-green); color: var(--green); }
+    .pill.wrong { background: var(--pill-red); color: var(--red); }
+    .pill.error { background: var(--pill-yellow); color: var(--yellow); }
+
+    .conf-bar { display: flex; align-items: center; gap: 6px; }
+    .conf-fill { height: 4px; border-radius: 2px; background: var(--accent2); }
+
+    /* ---- loading / error ---- */
+    #loading {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 60vh; gap: 16px; color: var(--muted);
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #error-msg {
+      display: none; background: rgba(239,68,68,0.12); border: 1px solid var(--red);
+      border-radius: var(--radius); padding: 16px 20px; color: #fca5a5;
+      margin: 20px auto; max-width: 640px; font-size: 0.9rem;
+    }
+    #app { display: none; }
+
+    .pagination { display: flex; gap: 8px; align-items: center; margin-top: 12px; justify-content: flex-end; }
+    .pagination button {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 0.8rem;
+    }
+    .pagination button:hover { border-color: var(--accent); }
+    .pagination button:disabled { opacity: 0.35; cursor: default; }
+    .pagination .page-info { font-size: 0.8rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <span>Loading evaluation data…</span>
+</div>
+
+<div id="error-msg"></div>
+
+<div id="app">
+  <header>
+    <h1>ALD Evaluation Report</h1>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span class="badge" id="ts-badge">—</span>
+      <span class="badge" id="mode-badge">Telephony</span>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+        <span id="theme-icon">&#9790;</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- SUMMARY CARDS -->
+    <section>
+      <h2>Overview</h2>
+      <div class="cards">
+        <div class="card green">
+          <div class="label">Overall Accuracy</div>
+          <div class="value" id="c-accuracy">—</div>
+          <div class="sub" id="c-files">— files</div>
+        </div>
+        <div class="card accent">
+          <div class="label">Avg Confidence</div>
+          <div class="value" id="c-conf">—</div>
+          <div class="sub">model certainty</div>
+        </div>
+        <div class="card cyan">
+          <div class="label">Avg Latency</div>
+          <div class="value" id="c-latency">—</div>
+          <div class="sub" id="c-p95">p95: —</div>
+        </div>
+        <div class="card">
+          <div class="label">Languages</div>
+          <div class="value" id="c-langs">—</div>
+          <div class="sub">evaluated</div>
+        </div>
+        <div class="card">
+          <div class="label">Error Rate</div>
+          <div class="value" id="c-errors" style="color:var(--red)">—</div>
+          <div class="sub">API failures</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHARTS ROW -->
+    <section>
+      <h2>Performance Breakdown</h2>
+      <div class="charts-row">
+        <div class="chart-box">
+          <h3>Per-language F1 / Precision / Recall</h3>
+          <canvas id="chart-lang"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Per-duration Accuracy</h3>
+          <canvas id="chart-dur"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- PER-LANGUAGE TABLE -->
+    <section>
+      <h2>Per-Language Metrics</h2>
+      <table class="metrics">
+        <thead>
+          <tr>
+            <th>Language</th>
+            <th>F1</th>
+            <th>Precision</th>
+            <th>Recall</th>
+            <th>Support</th>
+          </tr>
+        </thead>
+        <tbody id="lang-table-body"></tbody>
+      </table>
+    </section>
+
+    <!-- CONFUSION MATRIX -->
+    <section>
+      <div class="cm-wrap">
+        <h3>Confusion Matrix — rows: ground truth, cols: predicted</h3>
+        <div id="confusion-matrix"></div>
+      </div>
+    </section>
+
+    <!-- CROSS BREAKDOWN -->
+    <section>
+      <h2>Language × Duration Accuracy</h2>
+      <table class="cross" id="cross-table"></table>
+    </section>
+
+    <!-- PREDICTIONS TABLE -->
+    <section id="section-predictions">
+      <h2>Predictions</h2>
+      <div class="table-controls">
+        <input class="search" type="text" id="pred-search" placeholder="Search file ID…" />
+        <select class="filter" id="filter-lang">
+          <option value="">All languages</option>
+        </select>
+        <select class="filter" id="filter-dur">
+          <option value="">All durations</option>
+        </select>
+        <select class="filter" id="filter-result">
+          <option value="">All results</option>
+          <option value="correct">Correct only</option>
+          <option value="wrong">Wrong only</option>
+          <option value="error">Errors only</option>
+        </select>
+        <span class="count-label" id="pred-count">— rows</span>
+      </div>
+      <table class="predictions">
+        <thead>
+          <tr>
+            <th>File ID</th>
+            <th>Lang</th>
+            <th>Duration</th>
+            <th>Ground Truth</th>
+            <th>Predicted</th>
+            <th>Confidence</th>
+            <th>Latency</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="pred-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <button id="prev-btn" disabled>← Prev</button>
+        <span class="page-info" id="page-info"></span>
+        <button id="next-btn">Next →</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// ---- config ----
+const DEFAULT_DATA_PATH = 'runs/latest/report_data.json';
+const PAGE_SIZE = 50;
+
+// ---- state ----
+let allPredictions = [];
+let filteredPredictions = [];
+let currentPage = 0;
+let currentMetrics = null;
+let langChartInstance = null;
+let durChartInstance = null;
+
+// ---- utils ----
+const $ = id => document.getElementById(id);
+const pct = v => (v * 100).toFixed(1) + '%';
+const fmt = v => typeof v === 'number' ? v.toFixed(3) : v;
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function scoreColor(v) {
+  if (v >= 0.85) return 'var(--green)';
+  if (v >= 0.65) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function cmColor(val, rowMax) {
+  if (rowMax === 0) return '';
+  const alpha = Math.min(0.9, (val / rowMax) * 0.9 + 0.05);
+  return `rgba(${cssVar('--chart-cm')}, ${alpha.toFixed(2)})`;
+}
+
+// ---- load data ----
+async function loadData() {
+  // Injected by export.py (Playwright) — skips fetch entirely
+  if (window.__REPORT_DATA__) return window.__REPORT_DATA__;
+
+  const params = new URLSearchParams(window.location.search);
+  const dataPath = params.get('data') || DEFAULT_DATA_PATH;
+
+  try {
+    const res = await fetch(dataPath);
+    if (!res.ok) throw new Error(`HTTP ${res.status} — ${dataPath}`);
+    return await res.json();
+  } catch (e) {
+    throw new Error(
+      `Could not load "${dataPath}".\n\n` +
+      `Run evaluation first:\n  python evaluate.py eval_clips_telephony/\n\n` +
+      `Then serve from the evaluation directory:\n  python -m http.server 8080\n\n` +
+      `Original error: ${e.message}`
+    );
+  }
+}
+
+// ---- render ----
+function renderCards(m) {
+  $('c-accuracy').textContent = pct(m.overall_accuracy);
+  $('c-files').textContent = `${m.valid_files} / ${m.total_files} files`;
+  $('c-conf').textContent = m.avg_confidence.toFixed(3);
+  $('c-latency').textContent = m.avg_latency_ms.toFixed(0) + 'ms';
+  $('c-p95').textContent = `p95: ${m.p95_latency_ms.toFixed(0)}ms`;
+  $('c-langs').textContent = m.labels.length;
+  const errPct = m.total_files > 0 ? m.error_files / m.total_files : 0;
+  $('c-errors').textContent = pct(errPct);
+  $('ts-badge').textContent = new Date(m.timestamp).toLocaleString();
+}
+
+function renderLangChart(m) {
+  const labels = Object.keys(m.per_language);
+  if (langChartInstance) { langChartInstance.destroy(); langChartInstance = null; }
+  const ctx = $('chart-lang').getContext('2d');
+  langChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'F1',
+          data: labels.map(l => m.per_language[l].f1),
+          backgroundColor: cssVar('--chart-bar-accent'),
+          borderRadius: 4,
+        },
+        {
+          label: 'Precision',
+          data: labels.map(l => m.per_language[l].precision),
+          backgroundColor: cssVar('--chart-bar-cyan'),
+          borderRadius: 4,
+        },
+        {
+          label: 'Recall',
+          data: labels.map(l => m.per_language[l].recall),
+          backgroundColor: cssVar('--chart-bar-green'),
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { min: 0, max: 1, grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted') } },
+        x: { grid: { display: false }, ticks: { color: cssVar('--muted') } },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar('--text'), boxWidth: 12 } },
+      },
+    },
+  });
+}
+
+function renderDurChart(m) {
+  const durs = Object.keys(m.per_duration).sort();
+  if (durChartInstance) { durChartInstance.destroy(); durChartInstance = null; }
+  const ctx = $('chart-dur').getContext('2d');
+  durChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: durs,
+      datasets: [{
+        label: 'Accuracy',
+        data: durs.map(d => m.per_duration[d].accuracy),
+        borderColor: cssVar('--chart-line'),
+        backgroundColor: cssVar('--chart-line-fill'),
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true,
+        pointBackgroundColor: cssVar('--chart-line'),
+        pointRadius: 5,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { min: 0, max: 1, grid: { color: cssVar('--border') }, ticks: { color: cssVar('--muted'), callback: v => pct(v) } },
+        x: { grid: { display: false }, ticks: { color: cssVar('--muted') } },
+      },
+      plugins: { legend: { labels: { color: cssVar('--text'), boxWidth: 12 } } },
+    },
+  });
+}
+
+function renderLangTable(m) {
+  const tbody = $('lang-table-body');
+  tbody.innerHTML = Object.entries(m.per_language)
+    .sort((a, b) => b[1].f1 - a[1].f1)
+    .map(([lang, v]) => `
+      <tr>
+        <td><strong>${lang}</strong></td>
+        <td>
+          <div class="bar-cell">
+            <div class="mini-bar" style="width:${(v.f1 * 80).toFixed(0)}px; background:${scoreColor(v.f1)}"></div>
+            <span style="color:${scoreColor(v.f1)}">${fmt(v.f1)}</span>
+          </div>
+        </td>
+        <td>${fmt(v.precision)}</td>
+        <td>${fmt(v.recall)}</td>
+        <td style="color:var(--muted)">${v.support}</td>
+      </tr>`
+    ).join('');
+}
+
+function renderConfusionMatrix(m) {
+  const { labels, matrix } = m.confusion_matrix;
+  const rowMaxes = matrix.map(row => Math.max(...row));
+
+  let html = '<table class="cm"><thead><tr><th></th>';
+  labels.forEach(l => { html += `<th class="col-header-lang">${l}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  matrix.forEach((row, i) => {
+    html += `<tr><td class="row-label">${labels[i]}</td>`;
+    row.forEach((val, j) => {
+      const bg = cmColor(val, rowMaxes[i]);
+      const style = bg ? `style="background:${bg}"` : '';
+      const isDiag = i === j;
+      html += `<td ${style}>${isDiag ? `<strong>${val}</strong>` : val}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  $('confusion-matrix').innerHTML = html;
+}
+
+function renderCrossBreakdown(m) {
+  const langs = Object.keys(m.per_language).sort();
+  const durs = Object.keys(m.per_duration).sort();
+  const tbl = $('cross-table');
+
+  let html = '<thead><tr><th>Language</th>';
+  durs.forEach(d => { html += `<th>${d}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  langs.forEach(lang => {
+    html += `<tr><td>${lang}</td>`;
+    durs.forEach(d => {
+      const v = m.cross_breakdown[lang]?.[d];
+      if (v === undefined) {
+        html += '<td style="color:var(--border)">—</td>';
+      } else {
+        html += `<td style="color:${scoreColor(v)}">${pct(v)}</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+function buildFilters(predictions) {
+  const langs = [...new Set(predictions.map(p => p.language))].sort();
+  const durs = [...new Set(predictions.map(p => p.duration))].sort();
+  const langSel = $('filter-lang');
+  const durSel = $('filter-dur');
+
+  langs.forEach(l => {
+    const o = document.createElement('option'); o.value = l; o.textContent = l;
+    langSel.appendChild(o);
+  });
+  durs.forEach(d => {
+    const o = document.createElement('option'); o.value = d; o.textContent = d;
+    durSel.appendChild(o);
+  });
+}
+
+function applyFilters() {
+  const search = $('pred-search').value.toLowerCase();
+  const lang = $('filter-lang').value;
+  const dur = $('filter-dur').value;
+  const result = $('filter-result').value;
+
+  filteredPredictions = allPredictions.filter(p => {
+    if (search && !p.file_id.toLowerCase().includes(search)) return false;
+    if (lang && p.language !== lang) return false;
+    if (dur && p.duration !== dur) return false;
+    if (result === 'correct' && !p.correct) return false;
+    if (result === 'wrong' && (p.correct || p.error)) return false;
+    if (result === 'error' && !p.error) return false;
+    return true;
+  });
+
+  currentPage = 0;
+  renderPredictionsPage();
+}
+
+function renderPredictionsPage() {
+  const start = currentPage * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, filteredPredictions.length);
+  const page = filteredPredictions.slice(start, end);
+  const totalPages = Math.ceil(filteredPredictions.length / PAGE_SIZE);
+
+  $('pred-count').textContent = `${filteredPredictions.length} rows`;
+  $('page-info').textContent = `${currentPage + 1} / ${totalPages || 1}`;
+  $('prev-btn').disabled = currentPage === 0;
+  $('next-btn').disabled = currentPage >= totalPages - 1;
+
+  const tbody = $('pred-tbody');
+  tbody.innerHTML = page.map(p => {
+    const resultClass = p.error ? 'error' : (p.correct ? 'correct' : 'wrong');
+    const resultText = p.error ? 'Error' : (p.correct ? 'Correct' : 'Wrong');
+    const conf = p.confidence || 0;
+    return `
+      <tr>
+        <td style="font-family:monospace;font-size:0.8rem">${p.file_id}</td>
+        <td>${p.language}</td>
+        <td>${p.duration}</td>
+        <td><strong>${p.ground_truth}</strong></td>
+        <td style="color:${p.predicted === p.ground_truth ? 'var(--green)' : 'var(--red)'}">${p.predicted}</td>
+        <td>
+          <div class="conf-bar">
+            <div class="conf-fill" style="width:${(conf * 50).toFixed(0)}px"></div>
+            <span>${conf.toFixed(3)}</span>
+          </div>
+        </td>
+        <td style="color:var(--muted)">${p.latency_ms.toFixed(0)}ms</td>
+        <td><span class="pill ${resultClass}">${resultText}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+// ---- theme ----
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  $('theme-icon').textContent = theme === 'light' ? '☽' : '☀';
+  localStorage.setItem('theme', theme);
+  if (currentMetrics) {
+    renderLangChart(currentMetrics);
+    renderDurChart(currentMetrics);
+    renderConfusionMatrix(currentMetrics);
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// ---- init ----
+async function init() {
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  $('theme-icon').textContent = savedTheme === 'light' ? '☽' : '☀';
+  $('theme-toggle').addEventListener('click', toggleTheme);
+
+  try {
+    const data = await loadData();
+    const { metrics: m, predictions } = data;
+
+    currentMetrics = m;
+    allPredictions = predictions || [];
+    filteredPredictions = allPredictions;
+
+    renderCards(m);
+    renderLangChart(m);
+    renderDurChart(m);
+    renderLangTable(m);
+    renderConfusionMatrix(m);
+    renderCrossBreakdown(m);
+    buildFilters(allPredictions);
+    renderPredictionsPage();
+
+    ['pred-search', 'filter-lang', 'filter-dur', 'filter-result'].forEach(id => {
+      $(id).addEventListener('input', applyFilters);
+      $(id).addEventListener('change', applyFilters);
+    });
+    $('prev-btn').addEventListener('click', () => { currentPage--; renderPredictionsPage(); });
+    $('next-btn').addEventListener('click', () => { currentPage++; renderPredictionsPage(); });
+
+    $('loading').style.display = 'none';
+    $('app').style.display = 'block';
+  } catch (e) {
+    $('loading').style.display = 'none';
+    const errEl = $('error-msg');
+    errEl.style.display = 'block';
+    errEl.innerHTML = `<strong>Failed to load report data</strong><br><pre style="white-space:pre-wrap;margin-top:10px;font-size:0.82rem">${e.message}</pre>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

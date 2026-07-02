@@ -19,6 +19,8 @@ class ALDClient:
         retry_attempts: int = 3,
         retry_delay: float = 1.0,
     ):
+        if retry_attempts < 1:
+            raise ValueError(f"retry_attempts must be >= 1, got {retry_attempts}")
         self.api_url = api_url
         self.use_dummy = use_dummy
         self.retry_attempts = retry_attempts
@@ -52,14 +54,20 @@ class ALDClient:
 
     def _parse_response(self, raw: dict) -> dict:
         """Extract fields from API response. Edit here when API schema changes."""
+        try:
+            confidence = float(raw.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
         return {
             "detected_language": str(raw.get("detected_language", "unknown")).lower(),
-            "confidence": float(raw.get("confidence", 0.0)),
+            "confidence": confidence,
             "all_scores": raw.get("all_scores", {}),
         }
 
     async def _real_detect(self, audio_path: Path, filename: str) -> dict:
         import aiohttp
+        if self._session is None:
+            raise RuntimeError("ALDClient must be used as an async context manager")
         audio_bytes = audio_path.read_bytes()
 
         for attempt in range(self.retry_attempts):
@@ -73,7 +81,10 @@ class ALDClient:
                     resp.raise_for_status()
                     return self._parse_response(await resp.json())
             except Exception as exc:
-                if attempt == self.retry_attempts - 1:
+                is_client_error = (
+                    hasattr(exc, "status") and isinstance(exc.status, int) and exc.status < 500
+                )
+                if attempt == self.retry_attempts - 1 or is_client_error:
                     raise
                 wait = self.retry_delay * (2 ** attempt)
                 logger.warning(f"Retry {attempt + 1} for {filename}: {exc} (wait {wait:.1f}s)")
@@ -92,12 +103,13 @@ class ALDClient:
             detected = ground_truth
             confidence = random.uniform(0.75, 0.97)
         else:
-            detected = random.choice([l for l in SUPPORTED_LANGUAGES if l != ground_truth])
+            detected = random.choice([lang for lang in SUPPORTED_LANGUAGES if lang != ground_truth])
             confidence = random.uniform(0.35, 0.70)
 
         scores = {l: round(random.uniform(0.01, 0.12), 4) for l in SUPPORTED_LANGUAGES}
         scores[detected] = round(confidence, 4)
         total = sum(scores.values())
         scores = {k: round(v / total, 4) for k, v in scores.items()}
+        confidence = scores[detected]  # use normalized value so confidence == all_scores[detected]
 
-        return {"detected_language": detected, "confidence": round(confidence, 4), "all_scores": scores}
+        return {"detected_language": detected, "confidence": confidence, "all_scores": scores}

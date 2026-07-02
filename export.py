@@ -14,6 +14,7 @@ Requires:
 """
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
@@ -42,38 +43,50 @@ def export_report(run_dir: Path, formats: list[str]) -> None:
         logger.error(f"report_data.json not found in {run_dir}")
         return
 
-    report_data = report_data_file.read_text(encoding="utf-8")
+    report_data = json.dumps(json.loads(report_data_file.read_text(encoding="utf-8")), ensure_ascii=True)
     logger.info(f"Run:     {run_dir}")
     logger.info(f"Formats: {', '.join(formats)}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
 
-        # Inject data before any page script runs — bypasses fetch entirely
-        # (fetch is blocked on file:// URLs in Chromium)
-        page.add_init_script(f"""
-            window.__REPORT_DATA__ = {report_data};
-            localStorage.setItem('theme', 'light');
-        """)
-        page.goto(f"file://{report_html.resolve()}")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)  # let Chart.js finish rendering
+            # Inject data before any page script runs — bypasses fetch entirely
+            # (fetch is blocked on file:// URLs in Chromium)
+            page.add_init_script(f"""
+                window.__REPORT_DATA__ = {report_data};
+                localStorage.setItem('theme', 'light');
+            """)
+            page.goto(f"file://{report_html.resolve()}")
+            page.wait_for_load_state("networkidle")
+            # Wait until Chart.js marks all canvases as rendered, timeout after 15s
+            try:
+                page.wait_for_function(
+                    "() => !document.querySelector('canvas[data-rendering]') && "
+                    "document.querySelectorAll('canvas').length > 0",
+                    timeout=15000,
+                )
+            except Exception:
+                page.wait_for_timeout(2500)  # no canvas sentinel — fall back to a fixed wait
 
-        # Predictions table is interactive-only — skip in exports
-        page.evaluate("document.getElementById('section-predictions').style.display = 'none'")
+            # Predictions table is interactive-only — skip in exports
+            page.evaluate("""
+                const el = document.getElementById('section-predictions');
+                if (el) el.style.display = 'none';
+            """)
 
-        if "pdf" in formats:
-            pdf_path = run_dir / "report.pdf"
-            page.pdf(path=str(pdf_path), format="A3", landscape=True, print_background=True)
-            logger.info(f"  PDF → {pdf_path}")
+            if "pdf" in formats:
+                pdf_path = run_dir / "report.pdf"
+                page.pdf(path=str(pdf_path), format="A3", landscape=True, print_background=True)
+                logger.info(f"  PDF → {pdf_path}")
 
-        if "png" in formats:
-            png_path = run_dir / "report.png"
-            page.screenshot(path=str(png_path), full_page=True)
-            logger.info(f"  PNG → {png_path}")
-
-        browser.close()
+            if "png" in formats:
+                png_path = run_dir / "report.png"
+                page.screenshot(path=str(png_path), full_page=True)
+                logger.info(f"  PNG → {png_path}")
+        finally:
+            browser.close()
 
 
 def main() -> None:
@@ -100,9 +113,14 @@ def main() -> None:
         run_dir = Path(args.run_dir).resolve()
     else:
         latest = runs_root / "latest"
-        if not latest.exists():
+        latest_txt = runs_root / "latest.txt"
+        if latest.exists():
+            run_dir = latest.resolve()
+        elif latest_txt.exists():
+            # Windows fallback written by evaluate.py when symlinks are unavailable
+            run_dir = (runs_root / latest_txt.read_text(encoding="utf-8").strip()).resolve()
+        else:
             parser.error("No run_dir given and runs/latest does not exist. Run evaluate.py first.")
-        run_dir = latest.resolve()
 
     if not run_dir.is_dir():
         parser.error(f"Not a directory: {run_dir}")

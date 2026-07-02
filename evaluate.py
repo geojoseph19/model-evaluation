@@ -17,12 +17,14 @@ import argparse
 import csv
 import json
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from ald_client import ALDClient
 from export import export_report
@@ -47,6 +49,13 @@ ALD_API_URL = ""
 # ---------------------------------------------------------------------------
 # Auto-tag generator
 # ---------------------------------------------------------------------------
+
+def _parse_int(value: str) -> Optional[int]:
+    try:
+        return int(float(value.strip())) if value.strip() else None
+    except (ValueError, TypeError):
+        return None
+
 
 def _auto_tag(runs_dir: Path) -> str:
     """Return next incremental version tag (v1, v2, …) based on existing runs."""
@@ -145,10 +154,18 @@ def discover_samples(config: EvalConfig) -> list[EvalSample]:
 
                 # Duration: metadata > parse folder name
                 dur_sec = row.get("duration_sec", "").strip()
-                if dur_sec and dur_sec.isdigit():
-                    duration = DURATION_MAP.get(int(dur_sec), dur_dir.name)
+                if dur_sec:
+                    try:
+                        duration = DURATION_MAP.get(int(float(dur_sec)), dur_dir.name)
+                    except ValueError:
+                        duration = dur_dir.name
                 else:
                     duration = dur_dir.name  # already "2s", "3s", etc.
+
+                if ground_truth not in SUPPORTED_LANGUAGES:
+                    logger.warning(
+                        f"Unexpected ground truth '{ground_truth}' for {wav.name} — not in SUPPORTED_LANGUAGES"
+                    )
 
                 samples.append(EvalSample(
                     file_id=wav.stem,
@@ -157,7 +174,7 @@ def discover_samples(config: EvalConfig) -> list[EvalSample]:
                     ground_truth=ground_truth,
                     duration=duration,
                     language=lang_dir.name,
-                    sample_rate=int(row["sample_rate"]) if row.get("sample_rate", "").isdigit() else None,
+                    sample_rate=_parse_int(row.get("sample_rate", "")),
                     codec=row.get("codec"),
                 ))
 
@@ -241,10 +258,12 @@ def compute_metrics(results: list[EvalResult]) -> dict:
     if not valid:
         return {"error": "No valid results to compute metrics"}
 
-    y_true = [r.ground_truth for r in valid]
-    y_pred = [r.predicted for r in valid]
-    labels = sorted(set(y_true) | (set(y_pred) - {"error", "unknown"}))
-    durations = sorted({r.duration for r in valid})
+    _excluded = {"error", "unknown"}
+    eval_set = [r for r in valid if r.ground_truth not in _excluded]
+    y_true = [r.ground_truth for r in eval_set]
+    y_pred = [r.predicted for r in eval_set]
+    labels = sorted((set(y_true) - _excluded) | (set(y_pred) - _excluded))
+    durations = sorted({r.duration for r in eval_set})
 
     # --- per-language metrics ---
     try:
@@ -271,14 +290,14 @@ def compute_metrics(results: list[EvalResult]) -> dict:
 
     except ImportError:
         # stdlib fallback
-        overall_accuracy = sum(r.correct for r in valid) / len(valid)
+        overall_accuracy = sum(r.correct for r in eval_set) / len(eval_set) if eval_set else 0.0
         per_language = {}
         cm = []
         for lang in labels:
-            tp = sum(1 for r in valid if r.ground_truth == lang and r.predicted == lang)
-            fp = sum(1 for r in valid if r.ground_truth != lang and r.predicted == lang)
-            fn = sum(1 for r in valid if r.ground_truth == lang and r.predicted != lang)
-            support = sum(1 for r in valid if r.ground_truth == lang)
+            tp = sum(1 for r in eval_set if r.ground_truth == lang and r.predicted == lang)
+            fp = sum(1 for r in eval_set if r.ground_truth != lang and r.predicted == lang)
+            fn = sum(1 for r in eval_set if r.ground_truth == lang and r.predicted != lang)
+            support = sum(1 for r in eval_set if r.ground_truth == lang)
             p = tp / (tp + fp) if (tp + fp) else 0.0
             r_ = tp / (tp + fn) if (tp + fn) else 0.0
             f = 2 * p * r_ / (p + r_) if (p + r_) else 0.0
@@ -289,14 +308,14 @@ def compute_metrics(results: list[EvalResult]) -> dict:
                 "support": support,
             }
         cm = [
-            [sum(1 for r in valid if r.ground_truth == tl and r.predicted == pl) for pl in labels]
+            [sum(1 for r in eval_set if r.ground_truth == tl and r.predicted == pl) for pl in labels]
             for tl in labels
         ]
 
     # --- per-duration ---
     per_duration = {}
     for dur in durations:
-        subset = [r for r in valid if r.duration == dur]
+        subset = [r for r in eval_set if r.duration == dur]
         if not subset:
             continue
         per_duration[dur] = {
@@ -310,7 +329,7 @@ def compute_metrics(results: list[EvalResult]) -> dict:
     for lang in labels:
         cross_breakdown[lang] = {}
         for dur in durations:
-            subset = [r for r in valid if r.language == lang and r.duration == dur]
+            subset = [r for r in eval_set if r.language == lang and r.duration == dur]
             if subset:
                 cross_breakdown[lang][dur] = round(
                     sum(r.correct for r in subset) / len(subset), 4
@@ -332,8 +351,10 @@ def compute_metrics(results: list[EvalResult]) -> dict:
         "cross_breakdown": cross_breakdown,
         "confusion_matrix": {"labels": labels, "matrix": cm},
         "avg_latency_ms": round(sum(latencies) / n, 2),
-        "p50_latency_ms": round(latencies[n // 2], 2),
-        "p95_latency_ms": round(latencies[int(0.95 * n)], 2),
+        "p50_latency_ms": round(
+            (latencies[n // 2 - 1] + latencies[n // 2]) / 2 if n % 2 == 0 else latencies[n // 2], 2
+        ),
+        "p95_latency_ms": round(latencies[min(math.ceil(0.95 * n) - 1, n - 1)], 2),
         "avg_confidence": round(sum(confidences) / len(confidences), 4),
         "labels": labels,
         "durations": durations,
@@ -345,8 +366,10 @@ def compute_metrics(results: list[EvalResult]) -> dict:
 # ---------------------------------------------------------------------------
 
 def make_run_dir(runs_dir: Path, tag: str) -> Path:
+    import socket
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    name = f"{ts}_{tag}" if tag else ts
+    host = socket.gethostname().split(".")[0]  # short hostname, no FQDN
+    name = f"{ts}_{host}_{tag}" if tag else f"{ts}_{host}"
     run_dir = runs_dir / name
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
@@ -370,6 +393,7 @@ def write_run_info(run_dir: Path, config: EvalConfig, elapsed: float, n_files: i
             cwd=Path(__file__).parent,
             stderr=subprocess.DEVNULL,
             text=True,
+            timeout=5,
         ).strip()
         info["git_hash"] = git_hash
     except Exception:
@@ -415,7 +439,7 @@ def save_results(results: list[EvalResult], metrics: dict, output_dir: Path) -> 
     report_data = {
         "metrics": metrics,
         "predictions": [
-            {k: getattr(r, k) for k in csv_fields}
+            {**{k: getattr(r, k) for k in csv_fields}, "all_scores": r.all_scores}
             for r in sorted(results, key=lambda x: (x.language, x.duration, x.file_id))
         ],
     }
@@ -458,15 +482,28 @@ def serve_report(output_dir: Path, port: int = 8080) -> None:
     import webbrowser
 
     serve_root = Path(__file__).parent.resolve()
-    os.chdir(serve_root)
 
-    handler = http.server.SimpleHTTPRequestHandler
-    handler.log_message = lambda *a: None  # silence access logs
+    try:
+        data_path = output_dir.resolve().relative_to(serve_root) / "report_data.json"
+    except ValueError:
+        # output_dir is outside the project root; symlink report_data.json into a temp
+        # location under serve_root so SimpleHTTPRequestHandler can serve it
+        import tempfile, shutil, atexit
+        tmp_dir = Path(tempfile.mkdtemp(dir=serve_root, prefix=".report_"))
+        atexit.register(shutil.rmtree, tmp_dir, ignore_errors=True)
+        shutil.copy2(output_dir / "report_data.json", tmp_dir / "report_data.json")
+        data_path = tmp_dir.relative_to(serve_root) / "report_data.json"
 
-    data_path = output_dir.resolve().relative_to(serve_root) / "report_data.json"
-    url = f"http://localhost:{port}/?data={data_path}"
+    url = f"http://localhost:{port}/?data={quote(str(data_path))}"
 
-    with http.server.HTTPServer(("", port), handler) as httpd:
+    class _Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(serve_root), **kwargs)
+
+        def log_message(self, *args):  # silence access logs
+            pass
+
+    with http.server.HTTPServer(("", port), _Handler) as httpd:
         print(f"\n  Report server running.")
         print(f"  Open: {url}")
         print(f"  Stop: Ctrl+C\n")
@@ -522,7 +559,19 @@ def main() -> None:
     # Tag: explicit > auto-incremented version
     tag = args.tag or _auto_tag(runs_dir)
 
-    # Create the timestamped run directory before evaluation starts
+    # Discover samples before creating the run dir so a bad input doesn't leave an orphan dir
+    samples = discover_samples(EvalConfig(
+        input_dir=input_dir,
+        output_dir=runs_dir,  # placeholder; only input_dir is read during discovery
+        api_url=api_url or "http://localhost:8000/detect",
+        use_dummy=use_dummy,
+        concurrency=args.workers,
+        tag=tag,
+    ))
+    if not samples:
+        logger.error("No .wav files found. Check directory structure.")
+        return
+
     run_dir = make_run_dir(runs_dir, tag)
 
     config = EvalConfig(
@@ -540,11 +589,6 @@ def main() -> None:
     logger.info(f"  API:         {'DUMMY (simulated)' if config.use_dummy else config.api_url}")
     logger.info(f"  Concurrency: {config.concurrency} parallel requests")
 
-    samples = discover_samples(config)
-    if not samples:
-        logger.error("No .wav files found. Check directory structure.")
-        return
-
     t0 = time.time()
     results = asyncio.run(run_evaluation(samples, config))
     elapsed = time.time() - t0
@@ -555,7 +599,10 @@ def main() -> None:
     save_results(results, metrics, run_dir)
     write_run_info(run_dir, config, elapsed, len(results))
     update_latest_symlink(runs_dir, run_dir)
-    print_summary(metrics)
+    if "error" in metrics:
+        logger.error(f"Cannot compute metrics: {metrics['error']}")
+    else:
+        print_summary(metrics)
 
     logger.info(f"Run saved → {run_dir}")
     logger.info(f"Symlink   → {runs_dir}/latest")

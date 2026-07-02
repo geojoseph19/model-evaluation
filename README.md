@@ -17,6 +17,7 @@ playwright install chromium
 model-evaluation/
 ├── evaluate.py                        # evaluation pipeline + entry point
 ├── export.py                          # standalone PDF/PNG exporter
+├── combine.py                         # merge runs from multiple machines into one report
 ├── ald_client.py                      # async API client (real + dummy mode)
 ├── index.html                         # interactive report viewer
 ├── eval_clips_telephony/              # input data — never modified by scripts
@@ -25,16 +26,16 @@ model-evaluation/
 │       └── 1s/  2s/  3s/  5s/
 │           └── *.wav
 └── runs/                              # created on first run
-    ├── 2026-07-01_110755_v1/
+    ├── 2026-07-01_110755_alice-mbp_v1/
     │   ├── run_info.json              # config snapshot: tag, api, workers, git hash
     │   ├── predictions.csv            # per-file: ground truth, predicted, confidence, latency
     │   ├── metrics.json               # accuracy, per-language P/R/F1, confusion matrix
     │   ├── report_data.json           # data consumed by index.html
     │   ├── report.pdf                 # exported report (landscape A3)
     │   └── report.png                 # full-page screenshot
-    ├── 2026-07-01_093020_v2/
+    ├── 2026-07-01_093020_server2_v2/
     │   └── …
-    └── latest -> 2026-07-01_093020_v2   # symlink, always points to most recent run
+    └── latest -> 2026-07-01_093020_server2_v2   # symlink, always points to most recent run
 ```
 
 ## Run evaluation
@@ -56,9 +57,9 @@ python3 evaluate.py --api-url http://your-host/detect --tag v1.2 -j 5 --serve
 python3 evaluate.py --no-export
 ```
 
-Each run creates a timestamped directory under `runs/` (e.g. `runs/2026-07-01_110755_v1`), updates the `runs/latest` symlink, and by default exports `report.pdf` and `report.png` into that directory.
+Each run creates a directory under `runs/` named `<timestamp>_<hostname>_<tag>` (e.g. `runs/2026-07-01_110755_alice-mbp_v1`), updates the `runs/latest` symlink, and by default exports `report.pdf` and `report.png` into that directory.
 
-The version tag is auto-incremented (`v1`, `v2`, …) when `--tag` is omitted.
+The hostname is included automatically so runs from different machines never collide when shared. The version tag is auto-incremented (`v1`, `v2`, …) when `--tag` is omitted.
 
 ## CLI reference — `evaluate.py`
 
@@ -72,6 +73,47 @@ The version tag is auto-incremented (`v1`, `v2`, …) when `--tag` is omitted.
 | `--no-export` | off | Skip automatic PDF/PNG export |
 | `--serve` | off | Start HTTP server and open report after evaluation |
 | `--port N` | `8080` | HTTP server port (used with `--serve`) |
+
+## Combine runs from multiple machines
+
+When evaluation is split across machines or done in batches, use `combine.py` to merge runs into a single report. Each machine's run folder already includes the hostname in its name, so dropping them all into `runs/` is safe — no renaming needed.
+
+```bash
+# Merge two runs
+python3 combine.py runs/2026-07-01_alice-mbp_v1 runs/2026-07-01_server2_v1
+
+# Merge with a custom tag
+python3 combine.py runs/2026-07-01_alice-mbp_v1 runs/2026-07-01_server2_v1 --tag batch-A
+
+# Skip automatic PDF/PNG export
+python3 combine.py runs/2026-07-01_alice-mbp_v1 runs/2026-07-01_server2_v1 --no-export
+
+# Merge and open in browser
+python3 combine.py runs/2026-07-01_alice-mbp_v1 runs/2026-07-01_server2_v1 --serve
+
+# Merge every run in the runs/ folder
+python3 combine.py --all
+
+# Merge all runs with a tag (PDF + PNG exported automatically)
+python3 combine.py --all --tag full-eval
+```
+
+If the same clip (`file_id`) appears in more than one run, the last run's result is kept by default. Pass `--keep first` to keep the first occurrence instead.
+
+The combined run is saved under `runs/<timestamp>_<tag>/` and becomes the new `runs/latest`.
+
+### CLI reference — `combine.py`
+
+| Argument | Default | Description |
+|---|---|---|
+| `run_dirs` | *(none)* | Run directories to merge (omit when using `--all`) |
+| `--all` | off | Merge every run directory found in `runs/` |
+| `--runs-dir DIR` | `./runs` | Root runs directory used by `--all` |
+| `--tag TAG` | `combined` | Tag suffix for the output run directory |
+| `--keep first\|last` | `last` | Which result to keep when a `file_id` appears in multiple runs |
+| `--no-export` | off | Skip automatic PDF/PNG export |
+| `--export FORMAT…` | `pdf png` | Export specific formats only (e.g. `--export pdf`) |
+| `--serve` | off | Start HTTP server and open report after merging |
 
 ## Export report manually
 

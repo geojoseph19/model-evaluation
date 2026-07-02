@@ -1,7 +1,9 @@
 """ALD API client — payload construction, request handling, response parsing."""
 
 import asyncio
+import importlib.util
 import logging
+import os
 import random
 from pathlib import Path
 from typing import Optional
@@ -9,6 +11,17 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 SUPPORTED_LANGUAGES = ["bn", "gu", "kn", "ml", "mr", "ta", "te"]
+
+# uvector WSSL model uses 3-letter codes; map to ISO 639-1 used by this eval framework
+_LANG3_TO_ISO2 = {
+    "asm": "as", "ben": "bn", "eng": "en", "guj": "gu", "hin": "hi",
+    "kan": "kn", "mal": "ml", "mar": "mr", "odi": "or", "pun": "pa",
+    "tam": "ta", "tel": "te",
+}
+_ID2LANG3 = {
+    0: "asm", 1: "ben", 2: "eng", 3: "guj", 4: "hin", 5: "kan",
+    6: "mal", 7: "mar", 8: "odi", 9: "pun", 10: "tam", 11: "tel",
+}
 
 
 class ALDClient:
@@ -113,3 +126,84 @@ class ALDClient:
         confidence = scores[detected]  # use normalized value so confidence == all_scores[detected]
 
         return {"detected_language": detected, "confidence": confidence, "all_scores": scores}
+
+
+class LocalModelClient:
+    """Runs the uvector WSSL model in-process. Loads weights once on __aenter__."""
+
+    def __init__(self, model_dir: str):
+        self._model_dir = str(model_dir)
+        self._evaluater = None
+        self._net = None
+        self._mod = None
+
+    async def __aenter__(self):
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._load)
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    def _load(self):
+        import sys
+        import torch
+        sys.path.insert(0, self._model_dir)
+
+        from ccc_wav2vec_extractor import HiddenFeatureExtractor
+
+        spec = importlib.util.spec_from_file_location(
+            "demo_uvector_wssl",
+            os.path.join(self._model_dir, "demo_uvector_wssl.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self._mod = mod
+
+        model1 = mod.LSTMNet()
+        model2 = mod.LSTMNet()
+        net = mod.MSA_DAT_Net(model1, model2)
+        weights = os.path.join(self._model_dir, "model", "ZWSSL_train_SpringData_13June2024_e3.pth")
+        net.load_state_dict(torch.load(weights, map_location=torch.device("cpu")), strict=False)
+        net.eval()
+        self._net = net
+
+        self._evaluater = HiddenFeatureExtractor()
+        logger.info(f"LocalModelClient: loaded model from {self._model_dir}")
+
+    def _detect_sync(self, audio_path: Path) -> dict:
+        import numpy as np
+        import torch
+        from torch.autograd import Variable
+
+        file_names, speech_list = self._evaluater.preprocess_audio([str(audio_path)])
+        if not speech_list or len(speech_list[0]) <= 16400:
+            logger.warning(f"Audio too short to classify: {audio_path.name}")
+            return {"detected_language": "unknown", "confidence": 0.0, "all_scores": {}}
+
+        hidden_features = self._evaluater.hiddenFeatures([speech_list[0]])
+        X1, X2 = self._mod.lstm_data(hidden_features[0])
+        X1 = np.swapaxes(X1, 0, 1)
+        X2 = np.swapaxes(X2, 0, 1)
+        x1 = Variable(X1, requires_grad=False)
+        x2 = Variable(X2, requires_grad=False)
+
+        with torch.no_grad():
+            o1, _, _, _ = self._net.forward(x1, x2)
+
+        raw = o1.detach().cpu().numpy()[0]
+        probs = np.exp(raw) / np.sum(np.exp(raw))
+        lang_idx = int(np.argmax(probs))
+
+        lang3 = _ID2LANG3[lang_idx]
+        detected = _LANG3_TO_ISO2.get(lang3, lang3)
+        confidence = round(float(probs[lang_idx]), 4)
+        all_scores = {
+            _LANG3_TO_ISO2.get(_ID2LANG3[i], _ID2LANG3[i]): round(float(p), 4)
+            for i, p in enumerate(probs)
+        }
+        return {"detected_language": detected, "confidence": confidence, "all_scores": all_scores}
+
+    async def detect(self, audio_path: Path, filename: str) -> dict:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._detect_sync, audio_path)

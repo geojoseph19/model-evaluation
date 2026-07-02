@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-from ald_client import ALDClient
+from ald_client import ALDClient, LocalModelClient
 from export import export_report
 
 logging.basicConfig(
@@ -85,6 +85,7 @@ class EvalConfig:
     retry_attempts: int = 3
     retry_delay: float = 1.0
     tag: str = ""           # optional human label, e.g. "v1.2" or "baseline"
+    local_model_dir: Optional[str] = None  # path to LID-version-2.0 dir; enables LocalModelClient
 
 
 @dataclass
@@ -232,12 +233,16 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
     total = len(samples)
     log_interval = max(1, total // 10)
 
-    async with ALDClient(
-        api_url=config.api_url,
-        use_dummy=config.use_dummy,
-        retry_attempts=config.retry_attempts,
-        retry_delay=config.retry_delay,
-    ) as client:
+    if config.local_model_dir:
+        client_ctx = LocalModelClient(config.local_model_dir)
+    else:
+        client_ctx = ALDClient(
+            api_url=config.api_url,
+            use_dummy=config.use_dummy,
+            retry_attempts=config.retry_attempts,
+            retry_delay=config.retry_delay,
+        )
+    async with client_ctx as client:
         tasks = [_process_one(s, client, semaphore) for s in samples]
         for i, coro in enumerate(asyncio.as_completed(tasks), 1):
             result = await coro
@@ -381,7 +386,7 @@ def write_run_info(run_dir: Path, config: EvalConfig, elapsed: float, n_files: i
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "tag": config.tag,
         "input_dir": str(config.input_dir.resolve()),
-        "api": "dummy" if config.use_dummy else config.api_url,
+        "api": f"local:{config.local_model_dir}" if config.local_model_dir else ("dummy" if config.use_dummy else config.api_url),
         "workers": config.concurrency,
         "total_files": n_files,
         "elapsed_seconds": round(elapsed, 2),
@@ -544,6 +549,10 @@ def main() -> None:
                         help="HTTP server port when using --serve (default: 8080)")
     parser.add_argument("--no-export", action="store_true",
                         help="Skip automatic PDF/PNG export after evaluation")
+    parser.add_argument(
+        "--local-model", default=None, metavar="DIR",
+        help="Path to LID-version-2.0 directory; runs uvector WSSL model in-process instead of API",
+    )
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -554,7 +563,7 @@ def main() -> None:
 
     # API URL: CLI flag > ALD_API_URL constant > dummy mode
     api_url = args.api_url or ALD_API_URL or None
-    use_dummy = api_url is None
+    use_dummy = api_url is None and not args.local_model
 
     # Tag: explicit > auto-incremented version
     tag = args.tag or _auto_tag(runs_dir)
@@ -581,12 +590,19 @@ def main() -> None:
         use_dummy=use_dummy,
         concurrency=args.workers,
         tag=tag,
+        local_model_dir=args.local_model,
     )
 
     logger.info(f"ALD Evaluation Pipeline")
     logger.info(f"  Input dir:   {config.input_dir}")
     logger.info(f"  Run dir:     {run_dir}")
-    logger.info(f"  API:         {'DUMMY (simulated)' if config.use_dummy else config.api_url}")
+    if config.local_model_dir:
+        api_label = f"LOCAL ({config.local_model_dir})"
+    elif config.use_dummy:
+        api_label = "DUMMY (simulated)"
+    else:
+        api_label = config.api_url
+    logger.info(f"  API:         {api_label}")
     logger.info(f"  Concurrency: {config.concurrency} parallel requests")
 
     t0 = time.time()

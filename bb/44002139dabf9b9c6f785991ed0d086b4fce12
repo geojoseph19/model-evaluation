@@ -1,0 +1,115 @@
+README.md
+  s_4d2a3cd444179f::t_e605aa9fd56939 20,29,36,38
+  s_4d2a3cd444179f::t_b5ccf2cde5fb69 60,62
+  s_4d2a3cd444179f::t_6ddf223e356543 97-98
+  s_4d2a3cd444179f::t_912a683539f8d2 77-87,90-93,99-108,112-113,116-117
+  s_4d2a3cd444179f::t_3a472615d5853d 94-96
+  s_4d2a3cd444179f::t_a8fc94b2ab5066 88-89
+  s_4d2a3cd444179f::t_1dcea3a92e6cc2 109-111
+  s_4d2a3cd444179f::t_69174d09cf3789 114-115
+ald_client.py
+  s_4ae63225a2ad7d::t_2495a9319bf71a 69-70
+  s_06aae9145ee9ce::t_772596ec29da6d 84-87
+  s_77d753b84e655a::t_561be8b206b228 57-60,63
+  s_8f5b1e12fe3a8d::t_47c023519bcb18 106
+  s_4ae63225a2ad7d::t_f599a22b720497 113,115
+  s_77d753b84e655a::t_eac2efa58373b6 22-23
+evaluate.py
+  s_06aae9145ee9ce::t_da2f4e8edce8dd 262-264,266
+  s_77d753b84e655a::t_c77fd1a999b9cd 27
+  s_06aae9145ee9ce::t_d06d8ce1889067 332
+  s_8f5b1e12fe3a8d::t_475ed29686984e 177
+  s_77d753b84e655a::t_813c0807e38061 261,265
+  s_77d753b84e655a::t_d04c3b54e91aef 157-161
+  s_06aae9145ee9ce::t_6cc30b62c35831 293,297-300
+  s_4ae63225a2ad7d::t_a5deae6e638eda 486-488,499-506
+  s_8f5b1e12fe3a8d::t_731eb5741abcb2 489-490,492,494-495
+  s_4d2a3cd444179f::t_1f92bd9afc6942 369,371-372
+  s_77d753b84e655a::t_394e50b43f5c78 497
+  s_77d753b84e655a::t_14eb62b244d681 442
+  s_77d753b84e655a::t_b62a65b1887976 563,565,570
+  s_4ae63225a2ad7d::t_37ede02c8b76c8 357
+  s_06aae9145ee9ce::t_7b18f6177052e8 491,493
+  s_8f5b1e12fe3a8d::t_35495edac5416d 53-59
+  s_06aae9145ee9ce::t_fc877e7bcd002b 396
+  s_8f5b1e12fe3a8d::t_bd614ed50ead9e 602-605
+  s_77d753b84e655a::t_b83ba2ac3ffa5c 354-356
+  s_4ae63225a2ad7d::t_8a770dda8e16e0 20
+  s_77d753b84e655a::t_bdcd8aee7ece97 165-169
+  s_06aae9145ee9ce::t_ca7f3e086ac045 311
+  s_06aae9145ee9ce::t_0ea541e6f52d15 318
+  s_4ae63225a2ad7d::t_7f7317a1f65cc4 562,564,566-569,571-574
+  s_4d2a3cd444179f::t_ea43c017fa9ec0 496,498
+export.py
+  s_06aae9145ee9ce::t_188b9bcf6fd526 17
+  s_06aae9145ee9ce::t_001b56650f1814 53-89
+  s_06aae9145ee9ce::t_15a3d32b2722b1 46
+  s_77d753b84e655a::t_04200000cded53 52
+  s_77d753b84e655a::t_0c5335ba960d62 116-122
+combine.py
+  s_4d2a3cd444179f::t_7dba78ea254869 9-10
+  s_4d2a3cd444179f::t_e134f2cb168dfc 173,175
+  s_4d2a3cd444179f::t_3c01b4c5cf41f3 107-108,110
+  s_4d2a3cd444179f::t_a6c11b4f5681bb 1-8,11-34,50,55-57,59-70,72-99,104-106,111,113-114,117-118,141,143-149,153-158,160-169,171-172,174,176-177,179-182
+  s_4d2a3cd444179f::t_52931300220e6f 35-49,51-54,58,71,109,112,128-129,142,150-152,159,170,178
+  s_4d2a3cd444179f::t_83f171b0e21bf0 100-103,115-116,119-123,125-127,130-140
+  s_4d2a3cd444179f::t_a31e7cb9016fd2 124
+.gitignore
+  s_e0d6ac4ee12760::t_b8df0581c26b36 2-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "bb44002139dabf9b9c6f785991ed0d086b4fce12",
+  "prompts": {},
+  "sessions": {
+    "s_06aae9145ee9ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5000019c-390f-4934-8c93-3edda4dae05b",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_4ae63225a2ad7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af829adb-60f2-418d-852c-9ad4ade34ba7",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_4d2a3cd444179f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e36011e-1e8d-4b81-8cb8-8bdfcaf4f9ea",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_77d753b84e655a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebdf7088-9098-4296-8970-68399f1b0ca2",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_8f5b1e12fe3a8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "adcce3e4-55be-4134-bef1-f59d45e37931",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_e0d6ac4ee12760": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bcba94e6-896b-4599-9d50-f83c241ff629",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

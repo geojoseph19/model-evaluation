@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
+import cli_ui
 from ald_client import ALDClient, LocalModelClient
 from export import export_report
 from system_info import (
@@ -35,10 +36,6 @@ from system_info import (
     collect_peak_usage,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 SUPPORTED_LANGUAGES = ["bn", "gu", "kn", "ml", "mr", "ta", "te"]
@@ -274,18 +271,7 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
                 valid = [r for r in results if not r.error and r.ground_truth not in ("error", "unknown")]
                 running_acc = sum(1 for r in valid if r.correct) / len(valid) if valid else 0.0
                 avg_lat = sum(r.latency_ms for r in valid) / len(valid) if valid else 0.0
-
-                lang_summary = "  ".join(
-                    f"{lg}:{lang_correct.get(lg, 0)}/{lang_total[lg]}"
-                    f"({lang_correct.get(lg, 0)/lang_total[lg]:.0%})"
-                    for lg in sorted(lang_total)
-                )
-                logger.info(
-                    f"  {i}/{total} ({i/total:.0%})  |  acc={running_acc:.1%}  "
-                    f"lat={avg_lat:.0f}ms  err={errors}  ETA={eta_str}"
-                )
-                if lang_summary:
-                    logger.info(f"    langs: {lang_summary}")
+                cli_ui.print_progress(i, total, running_acc, avg_lat, errors, eta_str)
 
     return results
 
@@ -510,10 +496,7 @@ def save_results(results: list[EvalResult], metrics: dict, output_dir: Path) -> 
     with open(output_dir / "report_data.json", "w", encoding="utf-8") as f:
         json.dump(report_data, f)
 
-    logger.info(f"Saved results → {output_dir}/")
-    logger.info(f"  predictions.csv ({len(results)} rows)")
-    logger.info(f"  metrics.json (accuracy={metrics.get('overall_accuracy', 'N/A')})")
-    logger.info(f"  report_data.json (HTML report source)")
+    cli_ui.print_outputs_saved(output_dir, len(results), metrics.get("overall_accuracy", 0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -521,23 +504,7 @@ def save_results(results: list[EvalResult], metrics: dict, output_dir: Path) -> 
 # ---------------------------------------------------------------------------
 
 def print_summary(metrics: dict) -> None:
-    sep = "=" * 52
-    print(f"\n{sep}")
-    print("  ALD EVALUATION SUMMARY")
-    print(sep)
-    print(f"  Files:       {metrics['valid_files']}/{metrics['total_files']} valid")
-    print(f"  Accuracy:    {metrics['overall_accuracy']:.1%}")
-    print(f"  Avg latency: {metrics['avg_latency_ms']:.0f} ms  (p95: {metrics['p95_latency_ms']:.0f} ms)")
-    print(f"  Avg conf:    {metrics['avg_confidence']:.3f}")
-    print(f"\n  Per-language F1 / support:")
-    for lang, m in sorted(metrics.get("per_language", {}).items()):
-        bar = "█" * int(m["f1"] * 20)
-        print(f"    {lang}  {bar:<20}  F1={m['f1']:.3f}  n={m['support']}")
-    print(f"\n  Per-duration accuracy:")
-    for dur, m in sorted(metrics.get("per_duration", {}).items()):
-        bar = "█" * int(m["accuracy"] * 20)
-        print(f"    {dur}  {bar:<20}  {m['accuracy']:.1%}  (n={m['count']})")
-    print(sep)
+    cli_ui.print_summary(metrics)
 
 
 def serve_report(output_dir: Path, port: int = 8080) -> None:
@@ -568,9 +535,7 @@ def serve_report(output_dir: Path, port: int = 8080) -> None:
             pass
 
     with http.server.HTTPServer(("", port), _Handler) as httpd:
-        print(f"\n  Report server running.")
-        print(f"  Open: {url}")
-        print(f"  Stop: Ctrl+C\n")
+        cli_ui.print_serve_ready(url)
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
         httpd.serve_forever()
 
@@ -614,6 +579,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    cli_ui.setup_logging()
+
     input_dir = Path(args.input_dir)
     if not input_dir.exists():
         parser.error(f"Input directory not found: {input_dir}")
@@ -637,7 +604,11 @@ def main() -> None:
         tag=tag,
     ))
     if not samples:
-        logger.error("No .wav files found. Check directory structure.")
+        logger.error(
+            f"No .wav files found in: {input_dir}\n"
+            f"         Expected:  {input_dir}/<lang>/<duration>/*.wav\n"
+            f"         Example:   {input_dir}/bn/2s/bn_00001_2s.wav"
+        )
         return
 
     run_dir = make_run_dir(runs_dir, tag)
@@ -652,17 +623,13 @@ def main() -> None:
         local_model_dir=args.local_model,
     )
 
-    logger.info(f"ALD Evaluation Pipeline")
-    logger.info(f"  Input dir:   {config.input_dir}")
-    logger.info(f"  Run dir:     {run_dir}")
     if config.local_model_dir:
         api_label = f"LOCAL ({config.local_model_dir})"
     elif config.use_dummy:
         api_label = "DUMMY (simulated)"
     else:
         api_label = config.api_url
-    logger.info(f"  API:         {api_label}")
-    logger.info(f"  Concurrency: {config.concurrency} parallel requests")
+    cli_ui.print_banner(config.tag, config.input_dir, run_dir, api_label, len(samples), config.concurrency)
 
     pre_run = take_pre_run_snapshot()
     t0 = time.time()
@@ -670,7 +637,7 @@ def main() -> None:
     elapsed = time.time() - t0
     peak_usage = collect_peak_usage()
     throughput = len(results) / elapsed
-    logger.info(f"Done: {len(results)} files in {elapsed:.1f}s ({throughput:.1f} files/s)")
+    logger.info(f"Done: {len(results):,} files in {elapsed:.1f}s ({throughput:.1f} files/s)")
 
     metrics = compute_metrics(results)
     save_results(results, metrics, run_dir)
@@ -681,8 +648,7 @@ def main() -> None:
     else:
         print_summary(metrics)
 
-    logger.info(f"Run saved → {run_dir}")
-    logger.info(f"Symlink   → {runs_dir}/latest")
+    cli_ui.print_run_saved(run_dir, runs_dir)
 
     if not args.no_export:
         export_report(run_dir, ["pdf", "png"])
@@ -690,10 +656,7 @@ def main() -> None:
     if args.serve:
         serve_report(run_dir, port=args.port)
     else:
-        print(f"\n  View report:")
-        print(f"    python3 -m http.server 8080  (from {Path(__file__).parent})")
-        print(f"    open http://localhost:8080/")
-        print(f"\n  Or: python3 evaluate.py --serve\n")
+        cli_ui.print_view_report(Path(__file__).parent)
 
 
 if __name__ == "__main__":

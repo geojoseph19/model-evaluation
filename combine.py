@@ -23,7 +23,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+import cli_ui
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,6 +112,8 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true", help="Open the report in a browser after merging")
     parser.add_argument("--port", type=int, default=8080, help="HTTP server port (used with --serve, default: 8080)")
     args = parser.parse_args()
+
+    cli_ui.setup_logging()
 
     if args.runs_dir:
         runs_root = Path(args.runs_dir).resolve()

@@ -231,7 +231,12 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
     semaphore = asyncio.Semaphore(config.concurrency)
     results: list[EvalResult] = []
     total = len(samples)
-    log_interval = max(1, total // 10)
+    log_interval = max(1, total // 100)   # log every ~1% instead of ~10%
+    start_time = time.monotonic()
+
+    # running per-language correct/total counters
+    lang_correct: dict[str, int] = {}
+    lang_total: dict[str, int] = {}
 
     if config.local_model_dir:
         client_ctx = LocalModelClient(config.local_model_dir)
@@ -247,9 +252,34 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
         for i, coro in enumerate(asyncio.as_completed(tasks), 1):
             result = await coro
             results.append(result)
+
+            lang = result.ground_truth
+            if lang not in ("error", "unknown"):
+                lang_total[lang] = lang_total.get(lang, 0) + 1
+                if result.correct:
+                    lang_correct[lang] = lang_correct.get(lang, 0) + 1
+
             if i % log_interval == 0 or i == total:
                 errors = sum(1 for r in results if r.error)
-                logger.info(f"  {i}/{total} done  |  errors: {errors}")
+                elapsed = time.monotonic() - start_time
+                rate = i / elapsed if elapsed > 0 else 0
+                eta_s = (total - i) / rate if rate > 0 else 0
+                eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
+                valid = [r for r in results if not r.error and r.ground_truth not in ("error", "unknown")]
+                running_acc = sum(1 for r in valid if r.correct) / len(valid) if valid else 0.0
+                avg_lat = sum(r.latency_ms for r in valid) / len(valid) if valid else 0.0
+
+                lang_summary = "  ".join(
+                    f"{lg}:{lang_correct.get(lg, 0)}/{lang_total[lg]}"
+                    f"({lang_correct.get(lg, 0)/lang_total[lg]:.0%})"
+                    for lg in sorted(lang_total)
+                )
+                logger.info(
+                    f"  {i}/{total} ({i/total:.0%})  |  acc={running_acc:.1%}  "
+                    f"lat={avg_lat:.0f}ms  err={errors}  ETA={eta_str}"
+                )
+                if lang_summary:
+                    logger.info(f"    langs: {lang_summary}")
 
     return results
 

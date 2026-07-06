@@ -28,6 +28,12 @@ from urllib.parse import quote
 
 from ald_client import ALDClient, LocalModelClient
 from export import export_report
+from system_info import (
+    collect_device_info,
+    collect_runtime_info,
+    take_pre_run_snapshot,
+    collect_peak_usage,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -410,19 +416,31 @@ def make_run_dir(runs_dir: Path, tag: str) -> Path:
     return run_dir
 
 
-def write_run_info(run_dir: Path, config: EvalConfig, elapsed: float, n_files: int) -> None:
+def write_run_info(
+    run_dir: Path,
+    config: EvalConfig,
+    elapsed: float,
+    n_files: int,
+    pre_run: Optional[dict] = None,
+    peak_usage: Optional[dict] = None,
+) -> None:
+    import socket
+    import subprocess
+
     info: dict = {
         "run_id": run_dir.name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "tag": config.tag,
+        "hostname": socket.gethostname(),
         "input_dir": str(config.input_dir.resolve()),
         "api": f"local:{config.local_model_dir}" if config.local_model_dir else ("dummy" if config.use_dummy else config.api_url),
         "workers": config.concurrency,
+        "retry_attempts": config.retry_attempts,
+        "retry_delay": config.retry_delay,
         "total_files": n_files,
         "elapsed_seconds": round(elapsed, 2),
     }
     try:
-        import subprocess
         git_hash = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).parent,
@@ -433,6 +451,17 @@ def write_run_info(run_dir: Path, config: EvalConfig, elapsed: float, n_files: i
         info["git_hash"] = git_hash
     except Exception:
         pass
+
+    info["runtime"] = collect_runtime_info()
+
+    device = collect_device_info(config.input_dir)
+    if pre_run:
+        device["at_run_start"] = pre_run
+    if peak_usage:
+        device["peak_usage"] = peak_usage
+    if device:
+        info["device"] = device
+
     with open(run_dir / "run_info.json", "w", encoding="utf-8") as f:
         json.dump(info, f, indent=2)
 
@@ -635,15 +664,17 @@ def main() -> None:
     logger.info(f"  API:         {api_label}")
     logger.info(f"  Concurrency: {config.concurrency} parallel requests")
 
+    pre_run = take_pre_run_snapshot()
     t0 = time.time()
     results = asyncio.run(run_evaluation(samples, config))
     elapsed = time.time() - t0
+    peak_usage = collect_peak_usage()
     throughput = len(results) / elapsed
     logger.info(f"Done: {len(results)} files in {elapsed:.1f}s ({throughput:.1f} files/s)")
 
     metrics = compute_metrics(results)
     save_results(results, metrics, run_dir)
-    write_run_info(run_dir, config, elapsed, len(results))
+    write_run_info(run_dir, config, elapsed, len(results), pre_run=pre_run, peak_usage=peak_usage)
     update_latest_symlink(runs_dir, run_dir)
     if "error" in metrics:
         logger.error(f"Cannot compute metrics: {metrics['error']}")

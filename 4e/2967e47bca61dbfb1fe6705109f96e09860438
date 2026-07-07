@@ -1,0 +1,23 @@
+cli_ui.py
+  s_eb7b46c15f6a01::t_f34c90059e6521 58
+  s_eb7b46c15f6a01::t_08706db9318a97 50
+  s_eb7b46c15f6a01::t_2296b610358bf0 59-84
+  s_eb7b46c15f6a01::t_462066c722e4b6 7-8
+  s_eb7b46c15f6a01::t_18a1c6352a3bbf 167-169,176-184,189-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4e2967e47bca61dbfb1fe6705109f96e09860438",
+  "prompts": {},
+  "sessions": {
+    "s_eb7b46c15f6a01": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "933b35c7-9021-416c-bdb1-6b5ed05d8a33",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

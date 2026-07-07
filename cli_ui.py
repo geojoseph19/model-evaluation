@@ -2,10 +2,14 @@
 """Terminal UI helpers: colors, progress bar, summary table, structured log output."""
 
 import logging
+import math
 import os
 import sys
-import threading
-import time
+
+from rich.console import Console
+from rich.progress import Progress, ProgressColumn, SpinnerColumn, TextColumn
+from rich.style import Style
+from rich.text import Text
 
 # ── Color support ──────────────────────────────────────────────────────────────
 
@@ -25,12 +29,10 @@ BOLD          = _e("\033[1m")
 DIM           = _e("\033[2m")
 GREY          = _e("\033[37m")    # standard white — readable light grey on dark terminals
 CYAN          = _e("\033[36m")
-BLUE          = _e("\033[34m")
 BRIGHT_RED    = _e("\033[91m")
 BRIGHT_GREEN  = _e("\033[92m")
 BRIGHT_YELLOW = _e("\033[93m")
 BRIGHT_BLUE   = _e("\033[94m")
-BRIGHT_CYAN   = _e("\033[96m")
 
 
 def acc_color(val: float) -> str:
@@ -51,41 +53,41 @@ def render_bar(value: float, width: int = 20) -> str:
     return f"{'█' * filled}{'░' * empty}"
 
 
+# ── Gradient shimmer bar ───────────────────────────────────────────────────────
+
+
+class _GradientPulseBar(ProgressColumn):
+    """Shimmer on the completed zone, static dim grey on the remaining zone."""
+
+    def __init__(self, bar_width: int = 24, speed: float = 1.5) -> None:
+        self.bar_width = bar_width
+        self.speed = speed
+        super().__init__()
+
+    def render(self, task) -> Text:  # type: ignore[override]
+        elapsed = task.elapsed or 0.0
+        filled = int((task.completed / task.total) * self.bar_width) if task.total else 0
+        text = Text()
+        for i in range(self.bar_width):
+            if i < filled:
+                phase = (i / self.bar_width) - (elapsed * self.speed % 1.0)
+                brightness = (math.sin(phase * 2 * math.pi) + 1) / 2
+                grey = int(80 + brightness * 175)
+                text.append("━", style=Style(color=f"rgb({grey},{grey},{grey})"))
+            else:
+                text.append("─", style=Style(color="rgb(60,60,60)"))
+        return text
+
+
 # ── Logging ────────────────────────────────────────────────────────────────────
 
-_progress_active = False
-_last_progress_line = ""
-_spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_spinner_thread: threading.Thread | None = None
-_spinner_stop = threading.Event()
-
-
-def _spinner_loop() -> None:
-    idx = 0
-    while not _spinner_stop.is_set():
-        if _USE_COLOR and _progress_active and _last_progress_line:
-            frame = f"{CYAN}{_spinner_frames[idx % len(_spinner_frames)]}{RESET}"
-            sys.stderr.write(f"\r  {frame}  {_last_progress_line}")
-            sys.stderr.flush()
-        idx += 1
-        time.sleep(0.08)
-
-
-def _start_spinner() -> None:
-    global _spinner_thread
-    _spinner_stop.clear()
-    _spinner_thread = threading.Thread(target=_spinner_loop, daemon=True)
-    _spinner_thread.start()
-
-
-def _stop_spinner() -> None:
-    _spinner_stop.set()
-    if _spinner_thread:
-        _spinner_thread.join(timeout=0.5)
+_progress_console = Console(stderr=True, highlight=False)
+_rich_progress: Progress | None = None
+_rich_task_id: int | None = None
 
 
 class _CLIHandler(logging.StreamHandler):
-    """Stderr log handler that clears the in-place progress bar before printing."""
+    """Stderr log handler that prints above the rich progress bar when active."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -100,15 +102,11 @@ class _CLIHandler(logging.StreamHandler):
                 icon = f"{GREY}·{RESET}"
                 text = f"  {icon}  {DIM}{msg}{RESET}"
 
-            if _USE_COLOR and _progress_active:
-                self.stream.write("\r\033[K")  # clear in-place progress line
-
-            self.stream.write(text + "\n")
-
-            if _USE_COLOR and _progress_active and _last_progress_line:
-                self.stream.write(f"\r{_last_progress_line}")  # redraw progress bar
-
-            self.stream.flush()
+            if _rich_progress is not None:
+                _rich_progress.console.print(text, markup=False, highlight=False)
+            else:
+                self.stream.write(text + "\n")
+                self.stream.flush()
         except Exception:
             self.handleError(record)
 
@@ -159,37 +157,32 @@ def print_progress(
     errors: int,
     eta_str: str,
 ) -> None:
-    global _progress_active, _last_progress_line
-    pct = current / total
-    bar = render_bar(pct, width=24)
-    acc_str = f"{acc_color(acc)}{acc:.1%}{RESET}"
-    err_str = f"{BRIGHT_RED}{errors}{RESET}" if errors else f"{GREY}0{RESET}"
-    # Store only the progress portion — spinner is prepended by the background thread
-    _last_progress_line = (
-        f"{bar}  {BOLD}{pct:>4.0%}{RESET}"
-        f"  {GREY}{current:,}/{total:,}{RESET}"
-        f"  acc={acc_str}"
+    global _rich_progress, _rich_task_id
+
+    desc = (
+        f"  {current:,}/{total:,}"
+        f"  acc={acc:.1%}"
         f"  lat={lat_ms:.0f}ms"
-        f"  err={err_str}"
-        f"  ETA={GREY}{eta_str}{RESET}"
+        f"  err={errors}"
+        f"  ETA={eta_str}"
     )
 
-    if not _progress_active:
-        _progress_active = True
-        if _USE_COLOR:
-            _start_spinner()
+    if _rich_progress is None:
+        _rich_progress = Progress(
+            SpinnerColumn(style="cyan"),
+            _GradientPulseBar(bar_width=24, speed=0.6),
+            TextColumn("{task.description}", markup=False),
+            console=_progress_console,
+        )
+        _rich_task_id = _rich_progress.add_task(desc, total=total, completed=current)
+        _rich_progress.start()
 
-    if not _USE_COLOR:
-        print(_last_progress_line, file=sys.stderr)
+    _rich_progress.update(_rich_task_id, completed=current, description=desc)
 
     if current >= total:
-        _progress_active = False
-        _last_progress_line = ""
-        if _USE_COLOR:
-            _stop_spinner()
-            sys.stderr.write("\r\033[K")
-            sys.stderr.flush()
-            print(file=sys.stderr)
+        _rich_progress.stop()
+        _rich_progress = None
+        _rich_task_id = None
 
 
 # ── Summary box ────────────────────────────────────────────────────────────────

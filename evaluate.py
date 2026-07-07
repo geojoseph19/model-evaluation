@@ -267,7 +267,12 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
                 elapsed = time.monotonic() - start_time
                 rate = i / elapsed if elapsed > 0 else 0
                 eta_s = (total - i) / rate if rate > 0 else 0
-                eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
+                if eta_s >= 86400:
+                    eta_str = f"{int(eta_s // 86400)}d{int(eta_s % 86400 // 3600):02d}h"
+                elif eta_s >= 3600:
+                    eta_str = f"{int(eta_s // 3600)}h{int(eta_s % 3600 // 60):02d}m"
+                else:
+                    eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
                 valid = [r for r in results if not r.error and r.ground_truth not in ("error", "unknown")]
                 running_acc = sum(1 for r in valid if r.correct) / len(valid) if valid else 0.0
                 avg_lat = sum(r.latency_ms for r in valid) / len(valid) if valid else 0.0

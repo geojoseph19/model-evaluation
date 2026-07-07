@@ -1,0 +1,27 @@
+ald_client.py
+  s_533f04685f926d::t_b17b4367a1c557 167-168,170,178-179
+  s_533f04685f926d::t_e9b450558b95c7 222
+  s_533f04685f926d::t_f2e1ec401a4edc 140
+  s_533f04685f926d::t_a20f9f9e96ae8b 141
+  s_533f04685f926d::t_44daf354d1d611 169,171-173,180-181,183-187,191
+  s_533f04685f926d::t_b05de6057d8940 215-217
+cli_ui.py
+  s_533f04685f926d::t_ce260a29cc58fc 55,78-81
+  s_533f04685f926d::t_833814c04e3867 133,147,154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "02f5eb4638e9aec14e4de26a3df6c8bea815bd1d",
+  "prompts": {},
+  "sessions": {
+    "s_533f04685f926d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "684d3ac1-2226-4191-8cea-196fb8af6bfd",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

@@ -52,6 +52,7 @@ def render_bar(value: float, width: int = 20) -> str:
 # ── Logging ────────────────────────────────────────────────────────────────────
 
 _progress_active = False
+_last_progress_line = ""
 
 
 class _CLIHandler(logging.StreamHandler):
@@ -74,6 +75,10 @@ class _CLIHandler(logging.StreamHandler):
                 self.stream.write("\r\033[K")  # clear in-place progress line
 
             self.stream.write(text + "\n")
+
+            if _USE_COLOR and _progress_active and _last_progress_line:
+                self.stream.write(f"\r{_last_progress_line}")  # redraw progress bar
+
             self.stream.flush()
         except Exception:
             self.handleError(record)
@@ -125,7 +130,7 @@ def print_progress(
     errors: int,
     eta_str: str,
 ) -> None:
-    global _progress_active
+    global _progress_active, _last_progress_line
     _progress_active = True
     pct = current / total
     bar = render_bar(pct, width=24)
@@ -139,12 +144,14 @@ def print_progress(
         f"  err={err_str}"
         f"  ETA={GREY}{eta_str}{RESET}"
     )
+    _last_progress_line = line
     if _USE_COLOR:
         print(f"\r{line}", end="", flush=True, file=sys.stderr)
     else:
         print(line, file=sys.stderr)
     if current >= total:
         _progress_active = False
+        _last_progress_line = ""
         if _USE_COLOR:
             print(file=sys.stderr)
 

@@ -137,6 +137,8 @@ class LocalModelClient:
         self._evaluater = None
         self._net = None
         self._mod = None
+        self._device = None
+        self._use_fp16 = False
         self._lock = threading.Lock()  # PyTorch/wav2vec not thread-safe; serialize inference
 
     async def __aenter__(self):
@@ -162,16 +164,31 @@ class LocalModelClient:
         spec.loader.exec_module(mod)
         self._mod = mod
 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._device = device
+        self._use_fp16 = device.type == "cuda"
+
+        if device.type == "cpu":
+            torch.set_num_threads(os.cpu_count() or 1)
+
         model1 = mod.LSTMNet()
         model2 = mod.LSTMNet()
         net = mod.MSA_DAT_Net(model1, model2)
         weights = os.path.join(self._model_dir, "model", "ZWSSL_train_SpringData_13June2024_e3.pth")
-        net.load_state_dict(torch.load(weights, map_location=torch.device("cpu")), strict=False)
+        net.load_state_dict(torch.load(weights, map_location=device), strict=False)
+        net.to(device)
+        if self._use_fp16:
+            net.half()
         net.eval()
+        if hasattr(torch, "compile"):
+            try:
+                net = torch.compile(net)
+            except Exception:
+                pass
         self._net = net
 
         self._evaluater = HiddenFeatureExtractor()
-        logger.info(f"LocalModelClient: loaded model from {self._model_dir}")
+        logger.info(f"LocalModelClient: loaded model from {self._model_dir} (device={device}, fp16={self._use_fp16})")
 
     def _detect_sync(self, audio_path: Path) -> dict:
         import numpy as np
@@ -195,13 +212,14 @@ class LocalModelClient:
         X1, X2 = self._mod.lstm_data(hidden_features[0])
         X1 = np.swapaxes(X1, 0, 1)
         X2 = np.swapaxes(X2, 0, 1)
-        x1 = Variable(X1, requires_grad=False)
-        x2 = Variable(X2, requires_grad=False)
+        dtype = torch.float16 if self._use_fp16 else torch.float32
+        x1 = Variable(X1, requires_grad=False).to(self._device, dtype=dtype)
+        x2 = Variable(X2, requires_grad=False).to(self._device, dtype=dtype)
 
         with torch.no_grad():
             o1, _, _, _ = self._net.forward(x1, x2)
 
-        raw = o1.detach().cpu().numpy()[0]
+        raw = o1.detach().cpu().float().numpy()[0]
         probs = np.exp(raw) / np.sum(np.exp(raw))
         lang_idx = int(np.argmax(probs))
 

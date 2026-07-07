@@ -4,6 +4,8 @@
 import logging
 import os
 import sys
+import threading
+import time
 
 # ── Color support ──────────────────────────────────────────────────────────────
 
@@ -45,7 +47,7 @@ def render_bar(value: float, width: int = 20) -> str:
     filled = max(0, min(width, int(value * width)))
     empty = width - filled
     if _USE_COLOR:
-        return f"\033[32m{'█' * filled}\033[90m{'░' * empty}{RESET}"
+        return f"\033[37m{'█' * filled}\033[90m{'░' * empty}{RESET}"
     return f"{'█' * filled}{'░' * empty}"
 
 
@@ -53,6 +55,33 @@ def render_bar(value: float, width: int = 20) -> str:
 
 _progress_active = False
 _last_progress_line = ""
+_spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_spinner_thread: threading.Thread | None = None
+_spinner_stop = threading.Event()
+
+
+def _spinner_loop() -> None:
+    idx = 0
+    while not _spinner_stop.is_set():
+        if _USE_COLOR and _progress_active and _last_progress_line:
+            frame = f"{CYAN}{_spinner_frames[idx % len(_spinner_frames)]}{RESET}"
+            sys.stderr.write(f"\r  {frame}  {_last_progress_line}")
+            sys.stderr.flush()
+        idx += 1
+        time.sleep(0.08)
+
+
+def _start_spinner() -> None:
+    global _spinner_thread
+    _spinner_stop.clear()
+    _spinner_thread = threading.Thread(target=_spinner_loop, daemon=True)
+    _spinner_thread.start()
+
+
+def _stop_spinner() -> None:
+    _spinner_stop.set()
+    if _spinner_thread:
+        _spinner_thread.join(timeout=0.5)
 
 
 class _CLIHandler(logging.StreamHandler):
@@ -131,28 +160,35 @@ def print_progress(
     eta_str: str,
 ) -> None:
     global _progress_active, _last_progress_line
-    _progress_active = True
     pct = current / total
     bar = render_bar(pct, width=24)
     acc_str = f"{acc_color(acc)}{acc:.1%}{RESET}"
     err_str = f"{BRIGHT_RED}{errors}{RESET}" if errors else f"{GREY}0{RESET}"
-    line = (
-        f"  {bar}  {BOLD}{pct:>4.0%}{RESET}"
+    # Store only the progress portion — spinner is prepended by the background thread
+    _last_progress_line = (
+        f"{bar}  {BOLD}{pct:>4.0%}{RESET}"
         f"  {GREY}{current:,}/{total:,}{RESET}"
         f"  acc={acc_str}"
         f"  lat={lat_ms:.0f}ms"
         f"  err={err_str}"
         f"  ETA={GREY}{eta_str}{RESET}"
     )
-    _last_progress_line = line
-    if _USE_COLOR:
-        print(f"\r{line}", end="", flush=True, file=sys.stderr)
-    else:
-        print(line, file=sys.stderr)
+
+    if not _progress_active:
+        _progress_active = True
+        if _USE_COLOR:
+            _start_spinner()
+
+    if not _USE_COLOR:
+        print(_last_progress_line, file=sys.stderr)
+
     if current >= total:
         _progress_active = False
         _last_progress_line = ""
         if _USE_COLOR:
+            _stop_spinner()
+            sys.stderr.write("\r\033[K")
+            sys.stderr.flush()
             print(file=sys.stderr)
 
 

@@ -1,0 +1,21 @@
+ald_client.py
+  s_533f04685f926d::t_a350108dac598a 140
+  s_533f04685f926d::t_855ff8de422afa 181-188
+  s_533f04685f926d::t_511cc08e2b32ec 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "85d06a4e304ebbf8a4b3363960af46e8d99fba6a",
+  "prompts": {},
+  "sessions": {
+    "s_533f04685f926d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "684d3ac1-2226-4191-8cea-196fb8af6bfd",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

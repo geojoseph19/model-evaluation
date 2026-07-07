@@ -1,0 +1,27 @@
+cli_ui.py
+  s_b0d64c86c5855e::t_48e8a335ade4d7 56,59-60,62-65,67-75,77,79
+  s_b0d64c86c5855e::t_7042ac947965a1 8-9
+  s_b0d64c86c5855e::t_a8aa9e631f96c2 76,78
+  s_b0d64c86c5855e::t_3a3860fdc8f482 177,180
+  s_b0d64c86c5855e::t_ac0fbb3371140d 173
+  s_b0d64c86c5855e::t_e56b55972b8701 5,10-12
+  s_b0d64c86c5855e::t_1890f59aef7c9b 160-164,166-167,170-172,174-176,178,183-185
+  s_b0d64c86c5855e::t_ef0f84e7345c7e 84-86,90,105-109
+  s_b0d64c86c5855e::t_33d72a7bff0748 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "87d07f4c4824a348283b1ea89f2ae76231d6a1e4",
+  "prompts": {},
+  "sessions": {
+    "s_b0d64c86c5855e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1bcea670-0c12-425b-9dc2-dd2032ddbada",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}

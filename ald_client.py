@@ -5,6 +5,7 @@ import importlib.util
 import logging
 import os
 import random
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -136,6 +137,7 @@ class LocalModelClient:
         self._evaluater = None
         self._net = None
         self._mod = None
+        self._lock = threading.Lock()  # PyTorch/wav2vec not thread-safe; serialize inference
 
     async def __aenter__(self):
         loop = asyncio.get_event_loop()
@@ -172,6 +174,14 @@ class LocalModelClient:
         logger.info(f"LocalModelClient: loaded model from {self._model_dir}")
 
     def _detect_sync(self, audio_path: Path) -> dict:
+        import numpy as np
+        import torch
+        from torch.autograd import Variable
+
+        with self._lock:
+            return self._detect_sync_locked(audio_path)
+
+    def _detect_sync_locked(self, audio_path: Path) -> dict:
         import numpy as np
         import torch
         from torch.autograd import Variable

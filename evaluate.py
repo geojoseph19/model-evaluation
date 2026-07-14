@@ -27,7 +27,7 @@ from typing import Optional
 from urllib.parse import quote
 
 import cli_ui
-from ald_client import ALDClient, LocalModelClient
+from ald_client import ALDClient, FasterWhisperClient, LocalModelClient
 from export import export_report
 from system_info import (
     collect_device_info,
@@ -89,6 +89,7 @@ class EvalConfig:
     retry_delay: float = 1.0
     tag: str = ""           # optional human label, e.g. "v1.2" or "baseline"
     local_model_dir: Optional[str] = None  # path to LID-version-2.0 dir; enables LocalModelClient
+    faster_whisper_url: Optional[str] = None  # faster-whisper server URL; enables FasterWhisperClient
 
 
 @dataclass
@@ -199,7 +200,9 @@ async def _process_one(
         t0 = time.perf_counter()
         try:
             resp = await client.detect(sample.path, sample.filename)
-            latency_ms = (time.perf_counter() - t0) * 1000
+            latency_ms = resp.get("latency_ms")
+            if latency_ms is None:
+                latency_ms = (time.perf_counter() - t0) * 1000
 
             return EvalResult(
                 file_id=sample.file_id,
@@ -243,6 +246,12 @@ async def run_evaluation(samples: list[EvalSample], config: EvalConfig) -> list[
 
     if config.local_model_dir:
         client_ctx = LocalModelClient(config.local_model_dir)
+    elif config.faster_whisper_url:
+        client_ctx = FasterWhisperClient(
+            api_url=config.faster_whisper_url,
+            retry_attempts=config.retry_attempts,
+            retry_delay=config.retry_delay,
+        )
     else:
         client_ctx = ALDClient(
             api_url=config.api_url,
@@ -424,7 +433,12 @@ def write_run_info(
         "tag": config.tag,
         "hostname": socket.gethostname(),
         "input_dir": str(config.input_dir.resolve()),
-        "api": f"local:{config.local_model_dir}" if config.local_model_dir else ("dummy" if config.use_dummy else config.api_url),
+        "api": (
+            f"local:{config.local_model_dir}" if config.local_model_dir
+            else f"faster-whisper:{config.faster_whisper_url}" if config.faster_whisper_url
+            else "dummy" if config.use_dummy
+            else config.api_url
+        ),
         "workers": config.concurrency,
         "retry_attempts": config.retry_attempts,
         "retry_delay": config.retry_delay,
@@ -582,6 +596,10 @@ def main() -> None:
         "--local-model", default=None, metavar="DIR",
         help="Path to LID-version-2.0 directory; runs uvector WSSL model in-process instead of API",
     )
+    parser.add_argument(
+        "--faster-whisper-url", default=None, metavar="URL",
+        help="faster-whisper LID server endpoint (e.g. http://localhost:8003/detect)",
+    )
     args = parser.parse_args()
 
     cli_ui.setup_logging()
@@ -594,7 +612,8 @@ def main() -> None:
 
     # API URL: CLI flag > ALD_API_URL constant > dummy mode
     api_url = args.api_url or ALD_API_URL or None
-    use_dummy = api_url is None and not args.local_model
+    faster_whisper_url = args.faster_whisper_url or None
+    use_dummy = api_url is None and not args.local_model and not faster_whisper_url
 
     # Tag: explicit > auto-incremented version
     tag = args.tag or _auto_tag(runs_dir)
@@ -626,10 +645,13 @@ def main() -> None:
         concurrency=args.workers,
         tag=tag,
         local_model_dir=args.local_model,
+        faster_whisper_url=faster_whisper_url,
     )
 
     if config.local_model_dir:
         api_label = f"LOCAL ({config.local_model_dir})"
+    elif config.faster_whisper_url:
+        api_label = f"faster-whisper ({config.faster_whisper_url})"
     elif config.use_dummy:
         api_label = "DUMMY (simulated)"
     else:

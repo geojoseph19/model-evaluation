@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -129,6 +130,71 @@ class ALDClient:
         return {"detected_language": detected, "confidence": confidence, "all_scores": scores}
 
 
+class FasterWhisperClient:
+    """Client for faster-whisper LID server (POST /detect with base64-encoded audio)."""
+
+    def __init__(self, api_url: str, retry_attempts: int = 3, retry_delay: float = 1.0):
+        if retry_attempts < 1:
+            raise ValueError(f"retry_attempts must be >= 1, got {retry_attempts}")
+        self.api_url = api_url
+        self.retry_attempts = retry_attempts
+        self.retry_delay = retry_delay
+        self._session = None
+
+    async def __aenter__(self):
+        try:
+            import aiohttp
+            self._session = aiohttp.ClientSession()
+        except ImportError:
+            raise RuntimeError("aiohttp required: pip install aiohttp")
+        return self
+
+    async def __aexit__(self, *args):
+        if self._session:
+            await self._session.close()
+
+    async def detect(self, audio_path: Path, filename: str) -> dict:
+        import base64
+        import wave
+        import aiohttp
+
+        try:
+            with wave.open(str(audio_path), "rb") as wf:
+                sample_rate = wf.getframerate()
+                audio_bytes = wf.readframes(wf.getnframes())
+        except Exception:
+            audio_bytes = audio_path.read_bytes()
+            sample_rate = 8000
+
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+
+        payload = {"audio_b64": audio_b64, "sample_rate": sample_rate}
+
+        for attempt in range(self.retry_attempts):
+            try:
+                async with self._session.post(
+                    self.api_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    resp.raise_for_status()
+                    raw = await resp.json()
+                    return {
+                        "detected_language": str(raw.get("language", "unknown")).lower(),
+                        "confidence": float(raw.get("confidence", 0.0)),
+                        "all_scores": {},
+                    }
+            except Exception as exc:
+                is_client_error = (
+                    hasattr(exc, "status") and isinstance(exc.status, int) and exc.status < 500
+                )
+                if attempt == self.retry_attempts - 1 or is_client_error:
+                    raise
+                wait = self.retry_delay * (2 ** attempt)
+                logger.warning(f"Retry {attempt + 1} for {filename}: {exc} (wait {wait:.1f}s)")
+                await asyncio.sleep(wait)
+
+
 class LocalModelClient:
     """Runs the uvector WSSL model in-process. Loads weights once on __aenter__."""
 
@@ -203,10 +269,18 @@ class LocalModelClient:
         import torch
         from torch.autograd import Variable
 
+        t0 = time.perf_counter()
+
         file_names, speech_list = self._evaluater.preprocess_audio([str(audio_path)])
         if not speech_list or len(speech_list[0]) <= 16400:
             logger.warning(f"Audio too short to classify: {audio_path.name}")
-            return {"detected_language": "unknown", "confidence": 0.0, "all_scores": {}}
+            latency_ms = (time.perf_counter() - t0) * 1000
+            return {
+                "detected_language": "unknown",
+                "confidence": 0.0,
+                "all_scores": {},
+                "latency_ms": round(latency_ms, 2),
+            }
 
         hidden_features = self._evaluater.hiddenFeatures([speech_list[0]])
         X1, X2 = self._mod.lstm_data(hidden_features[0])
@@ -230,7 +304,13 @@ class LocalModelClient:
             _LANG3_TO_ISO2.get(_ID2LANG3[i], _ID2LANG3[i]): round(float(p), 4)
             for i, p in enumerate(probs)
         }
-        return {"detected_language": detected, "confidence": confidence, "all_scores": all_scores}
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return {
+            "detected_language": detected,
+            "confidence": confidence,
+            "all_scores": all_scores,
+            "latency_ms": round(latency_ms, 2),
+        }
 
     async def detect(self, audio_path: Path, filename: str) -> dict:
         loop = asyncio.get_event_loop()

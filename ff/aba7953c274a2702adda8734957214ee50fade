@@ -1,0 +1,42 @@
+ald_client.py
+  s_31b188935dc0df::t_aecbb06d0ae7c6 277-283
+  s_31b188935dc0df::t_f676f4f80cf780 272-273
+  s_b3a37eb4d4fe37::t_68f7edf40f0600 133-163,165,167,170-197
+  s_b3a37eb4d4fe37::t_219568549d4ec0 164,166,168-169
+  s_31b188935dc0df::t_83e6b43ab2bbfc 9
+  s_31b188935dc0df::t_df120e64da03de 307-313
+evaluate.py
+  s_b3a37eb4d4fe37::t_cfb5176fcddd36 599-602
+  s_b3a37eb4d4fe37::t_a98e90831e4dbc 92
+  s_b3a37eb4d4fe37::t_b3be25868699b0 648
+  s_31b188935dc0df::t_1501decb93c51b 203-205
+  s_b3a37eb4d4fe37::t_b805f42a883051 615-616
+  s_b3a37eb4d4fe37::t_1099c38ec43b1a 249-254
+  s_b3a37eb4d4fe37::t_22b62ae65b682b 653-654
+  s_b3a37eb4d4fe37::t_634b657d8d1948 30
+  s_b3a37eb4d4fe37::t_7cc8c662d77e0a 436-441
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "ffaba7953c274a2702adda8734957214ee50fade",
+  "prompts": {},
+  "sessions": {
+    "s_31b188935dc0df": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ccb4c0e4-cb1a-4dba-b9e0-d33dd65c272e",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    },
+    "s_b3a37eb4d4fe37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5651646b-e552-4dc1-824d-fff4c23d6cfa",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "geojoseph19 <geojofficial@gmail.com>"
+    }
+  }
+}
